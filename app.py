@@ -14,6 +14,136 @@ st.set_page_config(
 # CATEGORIZATION LOGIC
 # ============================================================================
 
+# Category definitions with keywords and descriptions
+CATEGORY_DEFINITIONS = {
+    'Utilities': {
+        'keywords': [
+            'ELECTRIC', 'WATER', 'GAS', 'INTERNET', 'PHONE', 'CELLULAR', 'MOBILE',
+            'SHELL', 'CHEVRON', 'EXXON', 'BP', 'ARCO', 'VALERO', 'GAS STATION',
+            'POWER', 'UTILITY', 'PG&E', 'EDISON', 'CON EDISON', 'DUKE ENERGY',
+            'AT&T', 'VERIZON', 'T-MOBILE', 'SPRINT', 'COMCAST', 'XFINITY',
+            'SPECTRUM', 'COX', 'OPTIMUM', 'CABLE', 'INTERNET SERVICE'
+        ],
+        'description': 'Monthly utilities and services: electricity, water, gas, internet, phone, cable, and gas station purchases'
+    },
+    'Entertainment': {
+        'keywords': [
+            'NETFLIX', 'SPOTIFY', 'DISNEY', 'HULU', 'AMAZON PRIME', 'APPLE TV',
+            'YOUTUBE PREMIUM', 'PARAMOUNT', 'HBO', 'MAX', 'PEACOCK', 'SHOWTIME',
+            'CINEMA', 'MOVIE', 'THEATER', 'AMC', 'REGAL', 'CINEMARK',
+            'CONCERT', 'TICKETMASTER', 'STUBHUB', 'EVENTBRITE',
+            'GAME', 'STEAM', 'PLAYSTATION', 'XBOX', 'NINTENDO',
+            'MUSIC', 'APPLE MUSIC', 'PANDORA', 'AUDIBLE', 'BOOKS'
+        ],
+        'description': 'Streaming services, movies, concerts, games, books, and entertainment subscriptions'
+    },
+    'Travel': {
+        'keywords': [
+            'HOTEL', 'MOTEL', 'AIRBNB', 'VRBO', 'RESORT', 'LODGING',
+            'AIRLINE', 'DELTA', 'UNITED', 'AMERICAN AIRLINES', 'SOUTHWEST',
+            'JETBLUE', 'ALASKA AIR', 'FRONTIER', 'SPIRIT',
+            'UBER', 'LYFT', 'TAXI', 'RIDESHARE', 'TRANSPORTATION',
+            'BOOKING', 'EXPEDIA', 'TRIVAGO', 'KAYAK', 'PRICELINE',
+            'RENTAL CAR', 'HERTZ', 'ENTERPRISE', 'AVIS', 'BUDGET',
+            'TRAVEL', 'VACATION', 'TRIP', 'FLIGHT', 'AIRPORT'
+        ],
+        'description': 'Hotels, flights, car rentals, rideshares, and all travel-related expenses'
+    },
+    'Clothes, shoes': {
+        'keywords': [
+            'ZARA', 'NIKE', 'UNIQLO', 'MACY', "MACY'S", 'H&M', 'ADIDAS',
+            'OLD NAVY', 'GAP', 'TARGET', 'WALMART', 'COSTCO', 'AMAZON',
+            'NORDSTROM', 'BLOOMINGDALE', 'SAKS', 'NEIMAN MARCUS',
+            'FOOT LOCKER', 'FINISH LINE', 'DSW', 'SHOE',
+            'CLOTHING', 'APPAREL', 'FASHION', 'OUTFIT', 'WARDROBE',
+            'BANANA REPUBLIC', 'J.CREW', 'ABERCROMBIE', 'HOLLISTER',
+            'LULULEMON', 'ATHLETA', 'UNDER ARMOUR', 'PUMA', 'REEBOK'
+        ],
+        'description': 'Clothing, shoes, accessories, and fashion purchases from retail stores'
+    },
+    'Property Tax': {
+        'keywords': [
+            'TAX', 'COUNTY', 'PROPERTY TAX', 'REAL ESTATE TAX',
+            'ASSESSOR', 'TREASURER', 'TAX ASSESSMENT',
+            'PROPERTY ASSESSMENT', 'TAX BILL', 'TAX PAYMENT'
+        ],
+        'description': 'Property taxes, county assessments, and real estate tax payments'
+    },
+    'Groceries': {
+        'keywords': [
+            'WHOLE FOODS', 'TRADER JOE', "TRADER JOE'S", 'COSTCO', 'KROGER',
+            'SAFEWAY', 'ALBERTSONS', 'VONS', 'RALPHS', 'FOOD LION',
+            'PUBLIX', 'WEGMANS', 'H-E-B', 'WINN-DIXIE', 'GIANT',
+            'STOP & SHOP', 'SHOPRITE', 'MEIJER', 'HY-VEE',
+            'GROCERY', 'SUPERMARKET', 'MARKET', 'FOOD STORE',
+            'SPROUTS', 'FRESH MARKET', 'WHOLE FOODS MARKET'
+        ],
+        'description': 'Grocery shopping, food purchases, and household essentials from supermarkets'
+    },
+    'Dining': {
+        'keywords': [
+            'RESTAURANT', 'CAFE', 'COFFEE', 'STARBUCKS', 'DUNKIN',
+            'MCDONALD', 'BURGER KING', 'WENDY', 'TACO BELL',
+            'CHIPOTLE', 'PANERA', 'SUBWAY', 'DOMINO', 'PIZZA',
+            'DINING', 'EAT', 'FOOD', 'LUNCH', 'DINNER', 'BREAKFAST',
+            'GRUBHUB', 'DOORDASH', 'UBER EATS', 'POSTMATES',
+            'CAFE', 'BAKERY', 'DELI', 'FAST FOOD'
+        ],
+        'description': 'Restaurant meals, coffee shops, fast food, and food delivery services'
+    },
+    'Healthcare': {
+        'keywords': [
+            'PHARMACY', 'CVS', 'WALGREENS', 'RITE AID', 'PHARMACY',
+            'DOCTOR', 'HOSPITAL', 'MEDICAL', 'HEALTH', 'CLINIC',
+            'DENTIST', 'DENTAL', 'VISION', 'OPTICAL', 'EYE',
+            'INSURANCE', 'HEALTH INSURANCE', 'MEDICAL BILL',
+            'PRESCRIPTION', 'MEDICATION', 'DRUG STORE'
+        ],
+        'description': 'Medical expenses, prescriptions, doctor visits, dental, vision, and health insurance'
+    },
+    'Education': {
+        'keywords': [
+            'SCHOOL', 'UNIVERSITY', 'COLLEGE', 'TUITION', 'EDUCATION',
+            'TEXTBOOK', 'BOOKSTORE', 'STUDENT', 'COURSE', 'CLASS',
+            'TUTOR', 'LESSON', 'TRAINING', 'SEMINAR', 'WORKSHOP'
+        ],
+        'description': 'Tuition, school supplies, textbooks, courses, and educational expenses'
+    },
+    'Home & Garden': {
+        'keywords': [
+            'HOME DEPOT', 'LOWE', "LOWE'S", 'HARDWARE', 'HOME IMPROVEMENT',
+            'IKEA', 'WAYFAIR', 'OVERSTOCK', 'BED BATH', 'BED BATH & BEYOND',
+            'FURNITURE', 'DECOR', 'GARDEN', 'LANDSCAPING', 'LAWN',
+            'HARDWARE STORE', 'PAINT', 'TOOL', 'APPLIANCE'
+        ],
+        'description': 'Home improvement, furniture, appliances, gardening supplies, and household items'
+    },
+    'Insurance': {
+        'keywords': [
+            'INSURANCE', 'AUTO INSURANCE', 'CAR INSURANCE', 'HOME INSURANCE',
+            'RENTERS INSURANCE', 'LIFE INSURANCE', 'GEICO', 'STATE FARM',
+            'PROGRESSIVE', 'ALLSTATE', 'FARMERS', 'LIBERTY MUTUAL'
+        ],
+        'description': 'Auto, home, renters, life, and other insurance premiums'
+    },
+    'Transportation': {
+        'keywords': [
+            'METRO', 'SUBWAY', 'BUS', 'TRANSIT', 'PUBLIC TRANSPORT',
+            'PARKING', 'TOLL', 'EZPASS', 'FASSTRAK', 'TOLL ROAD',
+            'CAR WASH', 'AUTO REPAIR', 'MECHANIC', 'OIL CHANGE',
+            'TIRE', 'AUTO PARTS', 'NAPA', 'AUTOZONE', 'ORILEY'
+        ],
+        'description': 'Public transportation, parking, tolls, car maintenance, and auto services (excluding gas)'
+    },
+    'Shopping': {
+        'keywords': [
+            'AMAZON', 'EBAY', 'ETSY', 'ONLINE', 'SHOPPING',
+            'DEPARTMENT STORE', 'RETAIL', 'STORE'
+        ],
+        'description': 'General shopping and retail purchases not categorized elsewhere'
+    }
+}
+
 def categorize_transaction(row):
     """
     Categorize transactions based on priority:
@@ -22,71 +152,258 @@ def categorize_transaction(row):
     3. Fallback to original category or 'Other'
     """
     description = str(row.get('Description', '')).upper()
-    original_category = str(row.get('Category', 'Other'))
+    original_category = str(row.get('Category', 'Other')).upper()
     
     # Priority 1: Keyword Match in Description
-    keyword_categories = {
-        'Utilities': ['ELECTRIC', 'WATER', 'GAS', 'INTERNET', 'SHELL', 'PHONE'],
-        'Entertainment': ['NETFLIX', 'SPOTIFY', 'CINEMA', 'MOVIE', 'DISNEY'],
-        'Travel': ['HOTEL', 'AIRLINE', 'UBER', 'LYFT', 'DELTA', 'BOOKING'],
-        'Clothes, shoes': ['ZARA', 'NIKE', 'UNIQLO', 'MACY', 'H&M', 'ADIDAS'],
-        'Property Tax': ['TAX', 'COUNTY'],
-        'Groceries': ['WHOLE FOODS', 'TRADER JOES', 'COSTCO', 'KROGER', 'SAFEWAY']
-    }
-    
-    # Check for keyword matches
-    for category, keywords in keyword_categories.items():
-        for keyword in keywords:
+    for category, info in CATEGORY_DEFINITIONS.items():
+        for keyword in info['keywords']:
             if keyword in description:
                 return category
     
     # Priority 2: Map existing Category column
     category_mapping = {
-        'Bills & Utilities': 'Utilities',
-        'Groceries': 'Groceries',
-        'Gas': 'Utilities'
+        'BILLS & UTILITIES': 'Utilities',
+        'BILLS AND UTILITIES': 'Utilities',
+        'UTILITIES': 'Utilities',
+        'GROCERIES': 'Groceries',
+        'GROCERY': 'Groceries',
+        'GAS': 'Utilities',
+        'GAS & FUEL': 'Utilities',
+        'ENTERTAINMENT': 'Entertainment',
+        'TRAVEL': 'Travel',
+        'SHOPPING': 'Shopping',
+        'DINING': 'Dining',
+        'FOOD & DINING': 'Dining',
+        'HEALTHCARE': 'Healthcare',
+        'MEDICAL': 'Healthcare',
+        'EDUCATION': 'Education',
+        'HOME & GARDEN': 'Home & Garden',
+        'HOME IMPROVEMENT': 'Home & Garden',
+        'INSURANCE': 'Insurance',
+        'TRANSPORTATION': 'Transportation',
+        'AUTO & TRANSPORT': 'Transportation'
     }
     
     if original_category in category_mapping:
         return category_mapping[original_category]
     
     # Priority 3: Fallback to original category
-    return original_category if original_category else 'Other'
+    return original_category.title() if original_category and original_category != 'OTHER' else 'Other'
 
 
 # ============================================================================
 # DATA PROCESSING
 # ============================================================================
 
+def normalize_column_names(df):
+    """
+    Normalize column names to handle variations in CSV headers.
+    Maps common variations to standard column names.
+    """
+    # Create a mapping of possible variations to standard names
+    column_mapping = {}
+    
+    # Normalize all column names to uppercase and remove spaces/underscores
+    normalized_columns = {col.upper().replace(' ', '').replace('_', ''): col for col in df.columns}
+    
+    # Standard column name mappings
+    standard_columns = {
+        'TRANSACTIONDATE': 'Transaction Date',
+        'DATE': 'Transaction Date',
+        'TRANSACTION_DATE': 'Transaction Date',
+        'TRANS DATE': 'Transaction Date',
+        'POSTDATE': 'Post Date',
+        'POST_DATE': 'Post Date',
+        'POSTEDDATE': 'Post Date',
+        'DESCRIPTION': 'Description',
+        'DESC': 'Description',
+        'DETAILS': 'Description',
+        'MERCHANT': 'Description',
+        'VENDOR': 'Description',
+        'CATEGORY': 'Category',
+        'CAT': 'Category',
+        'TYPE': 'Type',
+        'TRANSACTIONTYPE': 'Type',
+        'TRANSACTION_TYPE': 'Type',
+        'AMOUNT': 'Amount',
+        'AMT': 'Amount',
+        'TRANSACTIONAMOUNT': 'Amount',
+        'TRANSACTION_AMOUNT': 'Amount',
+        'MEMO': 'Memo',
+        'NOTES': 'Memo',
+        'REFERENCE': 'Memo'
+    }
+    
+    # Find matches and create mapping
+    for std_key, std_value in standard_columns.items():
+        # Try exact match first
+        if std_key in normalized_columns:
+            column_mapping[normalized_columns[std_key]] = std_value
+        else:
+            # Try partial matches
+            for norm_key, orig_col in normalized_columns.items():
+                if std_key in norm_key or norm_key in std_key:
+                    column_mapping[orig_col] = std_value
+                    break
+    
+    # Also check for case-insensitive partial matches
+    for orig_col in df.columns:
+        orig_upper = orig_col.upper().replace(' ', '').replace('_', '')
+        for std_key, std_value in standard_columns.items():
+            if std_key in orig_upper or orig_upper in std_key:
+                if orig_col not in column_mapping:
+                    column_mapping[orig_col] = std_value
+    
+    # Rename columns
+    df_renamed = df.rename(columns=column_mapping)
+    
+    return df_renamed
+
+
 def load_and_process_data(uploaded_files):
     """
     Load CSV files, process and categorize transactions.
+    Handles inconsistent column headers by normalizing them.
     Returns processed DataFrame or None if error.
     """
     try:
         # Load all uploaded files
         dfs = []
-        for file in uploaded_files:
-            df = pd.read_csv(file)
-            dfs.append(df)
+        file_info = []
+        
+        for idx, file in enumerate(uploaded_files):
+            try:
+                # Try different encodings
+                try:
+                    df = pd.read_csv(file, encoding='utf-8')
+                except UnicodeDecodeError:
+                    try:
+                        df = pd.read_csv(file, encoding='latin-1')
+                    except:
+                        df = pd.read_csv(file, encoding='cp1252')
+                
+                # Normalize column names
+                df = normalize_column_names(df)
+                
+                # Store original column names for info
+                file_info.append({
+                    'file_name': file.name,
+                    'original_columns': list(df.columns),
+                    'row_count': len(df)
+                })
+                
+                dfs.append(df)
+                
+            except Exception as e:
+                st.warning(f"⚠️ Error loading {file.name}: {str(e)}")
+                continue
+        
+        if not dfs:
+            st.error("❌ No files could be loaded successfully.")
+            return None
         
         # Concatenate all dataframes
         data = pd.concat(dfs, ignore_index=True)
         
-        # Validate required columns
-        required_columns = ['Transaction Date', 'Amount']
-        missing_columns = [col for col in required_columns if col not in data.columns]
+        # Check for required columns (case-insensitive)
+        required_columns_lower = ['transaction date', 'amount']
+        available_columns_lower = [col.lower() for col in data.columns]
+        
+        missing_columns = []
+        for req_col in required_columns_lower:
+            if req_col not in available_columns_lower:
+                missing_columns.append(req_col)
         
         if missing_columns:
             st.error(f"❌ Missing required columns: {', '.join(missing_columns)}")
-            st.info("Expected columns: Transaction Date, Post Date, Description, Category, Type, Amount, Memo")
+            st.info(f"**Available columns in your CSV:** {', '.join(data.columns.tolist())}")
+            st.info("""
+            **Expected column names (case-insensitive, variations accepted):**
+            - Transaction Date (or Date, TransactionDate, Transaction_Date)
+            - Amount (or Amt, TransactionAmount, Transaction_Amount)
+            - Description (or Desc, Details, Merchant, Vendor) - Optional
+            - Category (or Cat) - Optional
+            - Type - Optional
+            - Post Date - Optional
+            - Memo - Optional
+            """)
+            
+            # Show file info
+            with st.expander("📋 File Details"):
+                for info in file_info:
+                    st.write(f"**{info['file_name']}**: {info['row_count']} rows")
+                    st.write(f"Columns: {', '.join(info['original_columns'])}")
+            
             return None
         
-        # Parse Transaction Date
-        data['Transaction Date'] = pd.to_datetime(data['Transaction Date'], errors='coerce')
+        # Standardize column names for processing
+        # Find the transaction date column
+        date_col = None
+        for col in data.columns:
+            if 'transaction date' in col.lower() or ('date' in col.lower() and 'post' not in col.lower()):
+                date_col = col
+                break
         
-        # Drop rows with invalid dates
-        data = data.dropna(subset=['Transaction Date'])
+        if not date_col:
+            date_col = [col for col in data.columns if 'date' in col.lower()][0] if any('date' in col.lower() for col in data.columns) else None
+        
+        if date_col:
+            data['Transaction Date'] = pd.to_datetime(data[date_col], errors='coerce')
+        else:
+            st.error("❌ Could not find a date column in the CSV files.")
+            return None
+        
+        # Find amount column
+        amount_col = None
+        for col in data.columns:
+            if col.lower() == 'amount' or 'amount' in col.lower():
+                amount_col = col
+                break
+        
+        if amount_col:
+            # Convert amount to numeric, handling currency symbols and commas
+            data['Amount'] = pd.to_numeric(
+                data[amount_col].astype(str).str.replace('$', '').str.replace(',', '').str.replace('(', '-').str.replace(')', ''),
+                errors='coerce'
+            )
+        else:
+            st.error("❌ Could not find an amount column in the CSV files.")
+            return None
+        
+        # Handle description and category columns (optional)
+        desc_col = None
+        for col in data.columns:
+            if 'description' in col.lower() or 'desc' in col.lower() or 'details' in col.lower():
+                desc_col = col
+                break
+        
+        if desc_col:
+            data['Description'] = data[desc_col].fillna('')
+        else:
+            data['Description'] = ''
+        
+        cat_col = None
+        for col in data.columns:
+            if col.lower() == 'category' or 'category' in col.lower():
+                cat_col = col
+                break
+        
+        if cat_col:
+            data['Category'] = data[cat_col].fillna('Other')
+        else:
+            data['Category'] = 'Other'
+        
+        # Drop rows with invalid dates or amounts
+        initial_count = len(data)
+        data = data.dropna(subset=['Transaction Date', 'Amount'])
+        dropped_count = initial_count - len(data)
+        
+        if dropped_count > 0:
+            st.info(f"ℹ️ Dropped {dropped_count} rows with invalid dates or amounts.")
+        
+        if len(data) == 0:
+            st.error("❌ No valid data remaining after processing.")
+            return None
         
         # Extract Year and Month
         data['Year'] = data['Transaction Date'].dt.year
@@ -100,10 +417,16 @@ def load_and_process_data(uploaded_files):
         data['Is_Income'] = data['Amount'] > 0
         data['Abs_Amount'] = data['Amount'].abs()
         
+        # Show success message with file info
+        st.success(f"✅ Successfully loaded {len(data)} transactions from {len(dfs)} file(s)")
+        
         return data
     
     except Exception as e:
         st.error(f"❌ Error processing data: {str(e)}")
+        import traceback
+        with st.expander("🔍 Error Details"):
+            st.code(traceback.format_exc())
         return None
 
 
@@ -193,10 +516,11 @@ def main():
         st.markdown("---")
         st.markdown("### 📊 About")
         st.markdown("""
-        This app analyzes Chase bank statements to provide:
+        This app analyzes bank statements to provide:
         - Total income and expenses
         - Monthly spending breakdown
         - Categorized transactions
+        - Flexible CSV column handling
         """)
     
     # Main Content
@@ -204,16 +528,22 @@ def main():
         st.info("👆 Please upload one or more CSV files to get started.")
         
         # Show example of expected format
-        with st.expander("ℹ️ Expected CSV Format"):
+        with st.expander("ℹ️ CSV Format Requirements"):
             st.markdown("""
-            Your Chase CSV should contain these columns:
-            - **Transaction Date**: Date of transaction
-            - **Post Date**: Date transaction posted
-            - **Description**: Transaction description
-            - **Category**: Transaction category
-            - **Type**: Transaction type
-            - **Amount**: Transaction amount (positive for income, negative for expenses)
-            - **Memo**: Additional notes
+            **Required Columns** (case-insensitive, variations accepted):
+            - **Transaction Date** (or Date, TransactionDate, Transaction_Date)
+            - **Amount** (or Amt, TransactionAmount, Transaction_Amount)
+            
+            **Optional Columns**:
+            - **Description** (or Desc, Details, Merchant, Vendor)
+            - **Category** (or Cat)
+            - **Type** (or TransactionType)
+            - **Post Date** (or PostDate, PostedDate)
+            - **Memo** (or Notes, Reference)
+            
+            **Note**: The app automatically handles variations in column names, 
+            so your CSV files don't need to match exactly. Amount can include 
+            currency symbols and commas.
             """)
         return
     
@@ -313,15 +643,49 @@ def main():
                 st.markdown(f"**{idx}. {category}**")
                 st.markdown(f"   ${amount:,.2f} ({percentage:.1f}%)")
     
+    # Category Definitions
+    st.markdown("---")
+    st.header("📚 Category Definitions")
+    st.markdown("Understanding what's included in each expense category:")
+    
+    # Show categories that appear in the data
+    categories_in_data = set(category_summary.index) if not category_summary.empty else set()
+    all_categories = set(CATEGORY_DEFINITIONS.keys())
+    
+    # Create columns for better layout
+    cols = st.columns(2)
+    col_idx = 0
+    
+    for category in sorted(all_categories):
+        if category in CATEGORY_DEFINITIONS:
+            info = CATEGORY_DEFINITIONS[category]
+            with cols[col_idx % 2]:
+                # Highlight if category appears in data
+                if category in categories_in_data:
+                    st.markdown(f"**{category}** ✅")
+                else:
+                    st.markdown(f"**{category}**")
+                st.markdown(f"*{info['description']}*")
+                st.markdown("")
+            col_idx += 1
+    
     # Raw data view (optional)
     with st.expander("🔎 View Raw Transaction Data"):
         year_data = data[data['Year'] == selected_year].sort_values('Transaction Date', ascending=False)
-        display_columns = ['Transaction Date', 'Description', 'Processed_Category', 'Amount', 'Type']
-        st.dataframe(
-            year_data[display_columns],
-            use_container_width=True,
-            height=400
-        )
+        # Select available columns for display
+        display_columns = []
+        for col in ['Transaction Date', 'Description', 'Processed_Category', 'Amount', 'Type', 'Category']:
+            if col in year_data.columns:
+                display_columns.append(col)
+        
+        if display_columns:
+            st.dataframe(
+                year_data[display_columns],
+                use_container_width=True,
+                height=400
+            )
+        else:
+            st.info("No displayable columns found.")
 
 
 if __name__ == "__main__":
