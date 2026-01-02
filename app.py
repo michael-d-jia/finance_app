@@ -385,27 +385,58 @@ def load_and_process_data(uploaded_files):
         # Concatenate all dataframes
         data = pd.concat(dfs, ignore_index=True)
         
-        # Check for required columns (case-insensitive)
-        required_columns_lower = ['transaction date', 'amount']
-        available_columns_lower = [col.lower() for col in data.columns]
+        # Standardize column names for processing
+        # Find the transaction date column - be more flexible
+        date_col = None
         
-        missing_columns = []
-        for req_col in required_columns_lower:
-            if req_col not in available_columns_lower:
-                missing_columns.append(req_col)
+        # First, try to find date column with various patterns
+        for col in data.columns:
+            col_lower = col.lower()
+            # Look for transaction date first
+            if 'transaction date' in col_lower:
+                date_col = col
+                break
+            # Then look for any date column (but not post date)
+            elif 'date' in col_lower and 'post' not in col_lower and date_col is None:
+                date_col = col
         
-        if missing_columns:
-            st.error(f"❌ Missing required columns: {', '.join(missing_columns)}")
-            st.info(f"**Available columns in your CSV:** {', '.join(data.columns.tolist())}")
+        # If still not found, try any column with 'date' in it
+        if not date_col:
+            for col in data.columns:
+                if 'date' in col.lower():
+                    date_col = col
+                    break
+        
+        # If still not found, check if any column contains date-like values
+        if not date_col:
+            for col in data.columns:
+                # Sample first few values to see if they look like dates
+                try:
+                    sample = data[col].dropna().head(5)
+                    if len(sample) > 0:
+                        # Check if values look like dates (contain / or - and numbers)
+                        date_like_count = 0
+                        for val in sample:
+                            val_str = str(val)
+                            if ('/' in val_str or '-' in val_str) and any(c.isdigit() for c in val_str):
+                                date_like_count += 1
+                        if date_like_count / len(sample) > 0.6:
+                            date_col = col
+                            st.info(f"ℹ️ Inferred '{col}' as the date column based on data patterns.")
+                            break
+                except:
+                    continue
+        
+        if date_col:
+            data['Transaction Date'] = pd.to_datetime(data[date_col], errors='coerce')
+        else:
+            st.error("❌ Could not find a date column in the CSV files.")
+            st.info(f"**Available columns:** {', '.join(data.columns.tolist())}")
             st.info("""
-            **Expected column names (case-insensitive, variations accepted):**
-            - Transaction Date (or Date, TransactionDate, Transaction_Date)
-            - Amount (or Amt, TransactionAmount, Transaction_Amount)
-            - Description (or Desc, Details, Merchant, Vendor) - Optional
-            - Category (or Cat) - Optional
-            - Type - Optional
-            - Post Date - Optional
-            - Memo - Optional
+            **Troubleshooting:**
+            - Date columns should contain dates in formats like: MM/DD/YYYY, YYYY-MM-DD, etc.
+            - Column names can be: Date, Transaction Date, TransactionDate, etc.
+            - The app will try to infer date columns from data patterns
             """)
             
             # Show file info
@@ -414,23 +445,6 @@ def load_and_process_data(uploaded_files):
                     st.write(f"**{info['file_name']}**: {info['row_count']} rows")
                     st.write(f"Columns: {', '.join(info['original_columns'])}")
             
-            return None
-        
-        # Standardize column names for processing
-        # Find the transaction date column
-        date_col = None
-        for col in data.columns:
-            if 'transaction date' in col.lower() or ('date' in col.lower() and 'post' not in col.lower()):
-                date_col = col
-                break
-        
-        if not date_col:
-            date_col = [col for col in data.columns if 'date' in col.lower()][0] if any('date' in col.lower() for col in data.columns) else None
-        
-        if date_col:
-            data['Transaction Date'] = pd.to_datetime(data[date_col], errors='coerce')
-        else:
-            st.error("❌ Could not find a date column in the CSV files.")
             return None
         
         # Find amount column - handle Debit/Credit or Credits/Debits columns
@@ -457,30 +471,36 @@ def load_and_process_data(uploaded_files):
             # Look for columns that contain numeric values that could be amounts
             for col in data.columns:
                 col_lower = col.lower()
-                # Skip date and description columns
-                if 'date' in col_lower or 'description' in col_lower or 'desc' in col_lower:
+                # Skip date, description, category, type, and memo columns
+                skip_keywords = ['date', 'description', 'desc', 'category', 'cat', 'type', 'memo', 'reference', 'ref', 'account', 'card']
+                if any(keyword in col_lower for keyword in skip_keywords):
                     continue
                 
                 # Try to convert column to numeric
                 try:
-                    sample_values = data[col].dropna().head(10)
+                    sample_values = data[col].dropna().head(20)  # Check more samples
                     if len(sample_values) > 0:
                         # Check if values look like amounts (numeric, possibly with $ or commas)
                         numeric_count = 0
+                        total_numeric_value = 0
                         for val in sample_values:
                             val_str = str(val).replace('$', '').replace(',', '').replace('(', '').replace(')', '').strip()
                             try:
-                                float(val_str)
+                                num_val = float(val_str)
                                 numeric_count += 1
+                                total_numeric_value += abs(num_val)
                             except:
                                 pass
                         
-                        # If most values are numeric, this might be the amount column
+                        # If most values are numeric AND they look like transaction amounts (not too small, not too large)
                         if numeric_count / len(sample_values) > 0.7:
-                            amount_col = col
-                            st.info(f"ℹ️ Inferred '{col}' as the amount column based on data patterns.")
-                            break
-                except:
+                            avg_value = total_numeric_value / numeric_count if numeric_count > 0 else 0
+                            # Amounts should typically be reasonable transaction sizes (between $0.01 and $1,000,000)
+                            if 0.01 <= avg_value <= 1000000:
+                                amount_col = col
+                                st.info(f"ℹ️ Inferred '{col}' as the amount column based on data patterns.")
+                                break
+                except Exception as e:
                     continue
         
         # Create Amount column from available columns
@@ -522,6 +542,7 @@ def load_and_process_data(uploaded_files):
             - If your CSV has Debit/Credit columns, make sure they're labeled as 'Debit' and 'Credit'
             - If your CSV has unlabeled columns, the app will try to infer which column contains amounts
             - Amount columns should contain numeric values (with or without $ signs)
+            - Common amount column names: Amount, Amt, Debit, Credit, Debits, Credits, Transaction Amount
             """)
             
             # Show file info with sample data
@@ -529,7 +550,24 @@ def load_and_process_data(uploaded_files):
                 for info in file_info:
                     st.write(f"**{info['file_name']}**: {info['row_count']} rows")
                     st.write(f"Columns: {', '.join(info['original_columns'])}")
+                    # Show sample of first few rows
+                    try:
+                        file_io = io.BytesIO()
+                        # We can't easily show sample data here, but we can list columns
+                    except:
+                        pass
             
+            return None
+        
+        # Now verify we have both required columns after processing
+        if 'Transaction Date' not in data.columns or 'Amount' not in data.columns:
+            missing = []
+            if 'Transaction Date' not in data.columns:
+                missing.append('Transaction Date')
+            if 'Amount' not in data.columns:
+                missing.append('Amount')
+            st.error(f"❌ Could not process required columns: {', '.join(missing)}")
+            st.info(f"**Available columns after processing:** {', '.join(data.columns.tolist())}")
             return None
         
         # Handle description and category columns (optional)
