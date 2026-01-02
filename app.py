@@ -279,33 +279,68 @@ def load_and_process_data(uploaded_files):
         
         for idx, file in enumerate(uploaded_files):
             try:
+                # Store file content for potential re-reading
+                import io
+                file_bytes = file.read()
+                file_io = io.BytesIO(file_bytes)
+                
                 # Try different encodings
                 try:
-                    df = pd.read_csv(file, encoding='utf-8')
+                    file_io.seek(0)
+                    df = pd.read_csv(file_io, encoding='utf-8')
                 except UnicodeDecodeError:
                     try:
-                        df = pd.read_csv(file, encoding='latin-1')
+                        file_io.seek(0)
+                        df = pd.read_csv(file_io, encoding='latin-1')
                     except:
-                        df = pd.read_csv(file, encoding='cp1252')
+                        file_io.seek(0)
+                        df = pd.read_csv(file_io, encoding='cp1252')
+                
+                # Check if column names look like data (dates, numbers) rather than headers
+                # This handles files with unlabeled headers or headerless files
+                column_names = list(df.columns)
+                looks_like_unlabeled = False
+                
+                # Check if column names are dates or numbers (unlabeled headers)
+                for col in column_names[:3]:  # Check first 3 columns
+                    col_str = str(col)
+                    # Check if column name looks like a date (MM/DD/YYYY or similar)
+                    if '/' in col_str and any(char.isdigit() for char in col_str):
+                        looks_like_unlabeled = True
+                        break
+                    # Check if column name is numeric or starts with special chars
+                    if col_str.replace('-', '').replace('.', '').replace('/', '').isdigit() or col_str.startswith('-'):
+                        looks_like_unlabeled = True
+                        break
                 
                 # Check if first row looks like headers or data
-                # If columns look like dates/numbers, it might be a headerless file
                 first_row_values = df.iloc[0].astype(str).tolist() if len(df) > 0 else []
                 looks_like_data = any(
                     any(char.isdigit() for char in str(val)) and len(str(val)) > 5 
                     for val in first_row_values[:3]
                 )
                 
-                # If it looks like the first row is data (not headers), skip header
-                if looks_like_data and len(df.columns) <= 3:
-                    # Try reading without header
+                # If column names look unlabeled OR first row looks like data, handle as headerless
+                if looks_like_unlabeled or (looks_like_data and len(df.columns) <= 3):
+                    # Re-read file without header
                     try:
-                        df = pd.read_csv(file, encoding='utf-8', header=None)
-                        # Assign standard column names
+                        file_io.seek(0)
+                        df = pd.read_csv(file_io, encoding='utf-8', header=None)
+                        
+                        # Assign standard column names based on number of columns
                         if len(df.columns) >= 3:
                             df.columns = ['Transaction Date', 'Description', 'Amount'][:len(df.columns)]
-                    except:
-                        pass
+                        elif len(df.columns) == 2:
+                            df.columns = ['Transaction Date', 'Amount']
+                        else:
+                            df.columns = [f'Column_{i+1}' for i in range(len(df.columns))]
+                    except Exception as e:
+                        # If that fails, keep original df but rename columns if they look unlabeled
+                        if looks_like_unlabeled:
+                            if len(df.columns) >= 3:
+                                df.columns = ['Transaction Date', 'Description', 'Amount'][:len(df.columns)]
+                            elif len(df.columns) == 2:
+                                df.columns = ['Transaction Date', 'Amount']
                 
                 # Store original column names before normalization
                 original_cols_before = list(df.columns)
@@ -399,6 +434,7 @@ def load_and_process_data(uploaded_files):
             return None
         
         # Find amount column - handle Debit/Credit or Credits/Debits columns
+        # Also try to infer amount column from data patterns if not explicitly labeled
         amount_col = None
         debit_col = None
         credit_col = None
@@ -415,6 +451,37 @@ def load_and_process_data(uploaded_files):
                 debit_col = col
             elif col_lower == 'credits':
                 credit_col = col
+        
+        # If no explicit amount column found, try to infer from data
+        if not amount_col and not debit_col and not credit_col:
+            # Look for columns that contain numeric values that could be amounts
+            for col in data.columns:
+                col_lower = col.lower()
+                # Skip date and description columns
+                if 'date' in col_lower or 'description' in col_lower or 'desc' in col_lower:
+                    continue
+                
+                # Try to convert column to numeric
+                try:
+                    sample_values = data[col].dropna().head(10)
+                    if len(sample_values) > 0:
+                        # Check if values look like amounts (numeric, possibly with $ or commas)
+                        numeric_count = 0
+                        for val in sample_values:
+                            val_str = str(val).replace('$', '').replace(',', '').replace('(', '').replace(')', '').strip()
+                            try:
+                                float(val_str)
+                                numeric_count += 1
+                            except:
+                                pass
+                        
+                        # If most values are numeric, this might be the amount column
+                        if numeric_count / len(sample_values) > 0.7:
+                            amount_col = col
+                            st.info(f"ℹ️ Inferred '{col}' as the amount column based on data patterns.")
+                            break
+                except:
+                    continue
         
         # Create Amount column from available columns
         if amount_col:
@@ -450,6 +517,19 @@ def load_and_process_data(uploaded_files):
         else:
             st.error("❌ Could not find an amount column in the CSV files.")
             st.info(f"**Available columns:** {', '.join(data.columns.tolist())}")
+            st.info("""
+            **Troubleshooting:**
+            - If your CSV has Debit/Credit columns, make sure they're labeled as 'Debit' and 'Credit'
+            - If your CSV has unlabeled columns, the app will try to infer which column contains amounts
+            - Amount columns should contain numeric values (with or without $ signs)
+            """)
+            
+            # Show file info with sample data
+            with st.expander("📋 File Details & Sample Data"):
+                for info in file_info:
+                    st.write(f"**{info['file_name']}**: {info['row_count']} rows")
+                    st.write(f"Columns: {', '.join(info['original_columns'])}")
+            
             return None
         
         # Handle description and category columns (optional)
