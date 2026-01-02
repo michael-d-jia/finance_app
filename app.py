@@ -260,8 +260,35 @@ def normalize_column_names(df):
                 if orig_col not in column_mapping:
                     column_mapping[orig_col] = std_value
     
+    # Handle duplicate mappings - if multiple columns map to same name, add suffix
+    seen_names = {}
+    final_mapping = {}
+    for orig_col, new_name in column_mapping.items():
+        if new_name in seen_names:
+            # This name was already used, add a suffix
+            counter = seen_names[new_name]
+            seen_names[new_name] = counter + 1
+            final_mapping[orig_col] = f"{new_name}_{counter}"
+        else:
+            seen_names[new_name] = 1
+            final_mapping[orig_col] = new_name
+    
     # Rename columns
-    df_renamed = df.rename(columns=column_mapping)
+    df_renamed = df.rename(columns=final_mapping)
+    
+    # Ensure all column names are unique (handle any remaining duplicates)
+    # If there are still duplicates, add numeric suffixes
+    if df_renamed.columns.duplicated().any():
+        new_cols = []
+        seen = {}
+        for col in df_renamed.columns:
+            if col in seen:
+                seen[col] += 1
+                new_cols.append(f"{col}_{seen[col]}")
+            else:
+                seen[col] = 0
+                new_cols.append(col)
+        df_renamed.columns = new_cols
     
     return df_renamed
 
@@ -382,8 +409,49 @@ def load_and_process_data(uploaded_files):
             st.error("❌ No files could be loaded successfully.")
             return None
         
+        # Ensure all DataFrames have unique column names before concatenating
+        # Check and fix duplicate columns in each DataFrame
+        for i, df in enumerate(dfs):
+            if df.columns.duplicated().any():
+                # Fix duplicate column names by adding suffixes
+                new_cols = []
+                seen = {}
+                for col in df.columns:
+                    if col in seen:
+                        seen[col] += 1
+                        new_cols.append(f"{col}_{seen[col]}")
+                    else:
+                        seen[col] = 0
+                        new_cols.append(col)
+                dfs[i].columns = new_cols
+        
+        # Align columns across all DataFrames for concatenation
+        all_columns = set()
+        for df in dfs:
+            all_columns.update(df.columns)
+        
+        # Reindex each DataFrame to have all columns (fill missing with NaN)
+        dfs_aligned = []
+        for df in dfs:
+            # Ensure DataFrame has unique column names
+            if df.columns.duplicated().any():
+                # This shouldn't happen after the fix above, but just in case
+                df = df.loc[:, ~df.columns.duplicated()]
+            df_aligned = df.reindex(columns=list(all_columns))
+            dfs_aligned.append(df_aligned)
+        
         # Concatenate all dataframes
-        data = pd.concat(dfs, ignore_index=True)
+        try:
+            data = pd.concat(dfs_aligned, ignore_index=True, sort=False)
+        except Exception as e:
+            # If concatenation still fails, provide detailed error
+            st.error(f"❌ Error concatenating CSV files: {str(e)}")
+            st.info("This might be due to incompatible column structures across files.")
+            with st.expander("📋 File Column Details"):
+                for i, df in enumerate(dfs):
+                    st.write(f"**File {i+1} columns:** {list(df.columns)}")
+                    st.write(f"**Duplicate columns:** {df.columns[df.columns.duplicated()].tolist()}")
+            return None
         
         # Standardize column names for processing
         # Find the transaction date column - be more flexible
