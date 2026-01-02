@@ -215,6 +215,7 @@ def normalize_column_names(df):
         'POSTDATE': 'Post Date',
         'POST_DATE': 'Post Date',
         'POSTEDDATE': 'Post Date',
+        'POSTED DATE': 'Post Date',
         'DESCRIPTION': 'Description',
         'DESC': 'Description',
         'DETAILS': 'Description',
@@ -229,9 +230,14 @@ def normalize_column_names(df):
         'AMT': 'Amount',
         'TRANSACTIONAMOUNT': 'Amount',
         'TRANSACTION_AMOUNT': 'Amount',
+        'DEBIT': 'Debit',
+        'CREDIT': 'Credit',
+        'DEBITS': 'Debits',
+        'CREDITS': 'Credits',
         'MEMO': 'Memo',
         'NOTES': 'Memo',
-        'REFERENCE': 'Memo'
+        'REFERENCE': 'Memo',
+        'REFERENCE NO.': 'Reference No.'
     }
     
     # Find matches and create mapping
@@ -282,13 +288,52 @@ def load_and_process_data(uploaded_files):
                     except:
                         df = pd.read_csv(file, encoding='cp1252')
                 
+                # Check if first row looks like headers or data
+                # If columns look like dates/numbers, it might be a headerless file
+                first_row_values = df.iloc[0].astype(str).tolist() if len(df) > 0 else []
+                looks_like_data = any(
+                    any(char.isdigit() for char in str(val)) and len(str(val)) > 5 
+                    for val in first_row_values[:3]
+                )
+                
+                # If it looks like the first row is data (not headers), skip header
+                if looks_like_data and len(df.columns) <= 3:
+                    # Try reading without header
+                    try:
+                        df = pd.read_csv(file, encoding='utf-8', header=None)
+                        # Assign standard column names
+                        if len(df.columns) >= 3:
+                            df.columns = ['Transaction Date', 'Description', 'Amount'][:len(df.columns)]
+                    except:
+                        pass
+                
+                # Store original column names before normalization
+                original_cols_before = list(df.columns)
+                
+                # Find and preserve original category column BEFORE normalization
+                original_cat_col = None
+                for col in original_cols_before:
+                    col_lower = col.lower()
+                    if 'category' in col_lower or col_lower == 'cat':
+                        original_cat_col = col
+                        break
+                
+                # Store original category values if found
+                original_cat_values = None
+                if original_cat_col:
+                    original_cat_values = df[original_cat_col].copy()
+                
                 # Normalize column names
                 df = normalize_column_names(df)
+                
+                # Add original category column after normalization
+                if original_cat_values is not None:
+                    df['Original_Category'] = original_cat_values.fillna('Other').astype(str)
                 
                 # Store original column names for info
                 file_info.append({
                     'file_name': file.name,
-                    'original_columns': list(df.columns),
+                    'original_columns': original_cols_before,
                     'row_count': len(df)
                 })
                 
@@ -353,21 +398,58 @@ def load_and_process_data(uploaded_files):
             st.error("❌ Could not find a date column in the CSV files.")
             return None
         
-        # Find amount column
+        # Find amount column - handle Debit/Credit or Credits/Debits columns
         amount_col = None
-        for col in data.columns:
-            if col.lower() == 'amount' or 'amount' in col.lower():
-                amount_col = col
-                break
+        debit_col = None
+        credit_col = None
         
+        for col in data.columns:
+            col_lower = col.lower()
+            if col_lower == 'amount':
+                amount_col = col
+            elif col_lower == 'debit':
+                debit_col = col
+            elif col_lower == 'credit':
+                credit_col = col
+            elif col_lower == 'debits':
+                debit_col = col
+            elif col_lower == 'credits':
+                credit_col = col
+        
+        # Create Amount column from available columns
         if amount_col:
             # Convert amount to numeric, handling currency symbols and commas
             data['Amount'] = pd.to_numeric(
                 data[amount_col].astype(str).str.replace('$', '').str.replace(',', '').str.replace('(', '-').str.replace(')', ''),
                 errors='coerce'
             )
+        elif debit_col and credit_col:
+            # Handle Debit/Credit columns (Capital One style)
+            debit_values = pd.to_numeric(
+                data[debit_col].astype(str).str.replace('$', '').str.replace(',', '').str.replace('(', '-').str.replace(')', ''),
+                errors='coerce'
+            ).fillna(0)
+            credit_values = pd.to_numeric(
+                data[credit_col].astype(str).str.replace('$', '').str.replace(',', '').str.replace('(', '-').str.replace(')', ''),
+                errors='coerce'
+            ).fillna(0)
+            # Debits are negative, Credits are positive
+            data['Amount'] = credit_values - debit_values
+        elif debit_col:
+            # Only debit column (expenses)
+            data['Amount'] = -pd.to_numeric(
+                data[debit_col].astype(str).str.replace('$', '').str.replace(',', '').str.replace('(', '-').str.replace(')', ''),
+                errors='coerce'
+            )
+        elif credit_col:
+            # Only credit column (income)
+            data['Amount'] = pd.to_numeric(
+                data[credit_col].astype(str).str.replace('$', '').str.replace(',', '').str.replace('(', '-').str.replace(')', ''),
+                errors='coerce'
+            )
         else:
             st.error("❌ Could not find an amount column in the CSV files.")
+            st.info(f"**Available columns:** {', '.join(data.columns.tolist())}")
             return None
         
         # Handle description and category columns (optional)
@@ -382,16 +464,24 @@ def load_and_process_data(uploaded_files):
         else:
             data['Description'] = ''
         
+        # Find and preserve original Category column
         cat_col = None
         for col in data.columns:
-            if col.lower() == 'category' or 'category' in col.lower():
+            col_lower = col.lower()
+            if col_lower == 'category' or col_lower == 'cat':
                 cat_col = col
                 break
         
         if cat_col:
-            data['Category'] = data[cat_col].fillna('Other')
+            # Use normalized category column
+            data['Category'] = data[cat_col].fillna('Other').astype(str)
+            # If Original_Category doesn't exist, use Category
+            if 'Original_Category' not in data.columns:
+                data['Original_Category'] = data['Category']
         else:
             data['Category'] = 'Other'
+            if 'Original_Category' not in data.columns:
+                data['Original_Category'] = 'Other'
         
         # Drop rows with invalid dates or amounts
         initial_count = len(data)
@@ -638,10 +728,13 @@ def main():
         
         with col2:
             st.subheader("Top Categories")
+            # Use container with proper spacing
             for idx, (category, amount) in enumerate(category_summary.head(10).items(), 1):
                 percentage = (amount / category_summary.sum()) * 100
+                # Use metric or markdown with better spacing
                 st.markdown(f"**{idx}. {category}**")
-                st.markdown(f"   ${amount:,.2f} ({percentage:.1f}%)")
+                st.markdown(f"<span style='margin-left: 20px;'>${amount:,.2f} ({percentage:.1f}%)</span>", unsafe_allow_html=True)
+                st.markdown("")  # Add spacing between items
     
     # Category Definitions
     st.markdown("---")
@@ -652,7 +745,7 @@ def main():
     categories_in_data = set(category_summary.index) if not category_summary.empty else set()
     all_categories = set(CATEGORY_DEFINITIONS.keys())
     
-    # Create columns for better layout
+    # Create columns for better layout with proper spacing
     cols = st.columns(2)
     col_idx = 0
     
@@ -665,9 +758,21 @@ def main():
                     st.markdown(f"**{category}** ✅")
                 else:
                     st.markdown(f"**{category}**")
-                st.markdown(f"*{info['description']}*")
-                st.markdown("")
+                # Use caption for better text wrapping
+                st.caption(info['description'])
+                st.markdown("<br>", unsafe_allow_html=True)
             col_idx += 1
+    
+    # Show original categories from CSV files if different
+    if 'Original_Category' in data.columns:
+        original_cats = data[data['Year'] == selected_year]['Original_Category'].unique()
+        processed_cats = set(category_summary.index) if not category_summary.empty else set()
+        original_only = [cat for cat in original_cats if cat not in processed_cats and str(cat) != 'Other' and str(cat) != 'nan']
+        
+        if original_only:
+            st.markdown("---")
+            st.subheader("📋 Original Categories from CSV Files")
+            st.info(f"These categories from your CSV files were mapped to processed categories: {', '.join(sorted(set(original_cats))[:10])}")
     
     # Raw data view (optional)
     with st.expander("🔎 View Raw Transaction Data"):
