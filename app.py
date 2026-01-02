@@ -496,7 +496,27 @@ def load_and_process_data(uploaded_files):
                     continue
         
         if date_col:
-            data['Transaction Date'] = pd.to_datetime(data[date_col], errors='coerce')
+            # Try common date formats first for better performance and to avoid warnings
+            date_formats = ['%m/%d/%Y', '%Y-%m-%d', '%m-%d-%Y', '%d/%m/%Y', '%Y/%m/%d', '%m/%d/%y', '%d-%m-%Y', '%m/%d/%Y %H:%M:%S', '%Y-%m-%d %H:%M:%S']
+            parsed_date = None
+            
+            for fmt in date_formats:
+                try:
+                    parsed = pd.to_datetime(data[date_col], format=fmt, errors='coerce')
+                    if parsed.notna().sum() > len(data) * 0.8:  # If >80% parse successfully
+                        parsed_date = parsed
+                        break
+                except:
+                    continue
+            
+            # If no format worked well, use default parsing with warning suppression
+            if parsed_date is None or (parsed_date.isna().all() if parsed_date is not None else True):
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.filterwarnings('ignore', category=UserWarning, message='.*infer format.*')
+                    parsed_date = pd.to_datetime(data[date_col], errors='coerce')
+            
+            data['Transaction Date'] = parsed_date
         else:
             st.error("❌ Could not find a date column in the CSV files.")
             st.info(f"**Available columns:** {', '.join(data.columns.tolist())}")
@@ -782,12 +802,48 @@ def main():
     # Sidebar - File Upload
     with st.sidebar:
         st.header("📁 Upload Bank Statements")
-        uploaded_files = st.file_uploader(
-            "Upload Chase CSV files",
+        
+        # Use session state to persist uploaded files across re-runs
+        if 'uploaded_files' not in st.session_state:
+            st.session_state.uploaded_files = []
+        
+        # File uploader
+        new_files = st.file_uploader(
+            "Upload CSV files",
             type=['csv'],
             accept_multiple_files=True,
-            help="Upload one or more Chase bank statement CSV files"
+            help="Upload one or more bank statement CSV files"
         )
+        
+        # Update session state with new files
+        if new_files:
+            # Get list of current file names
+            current_names = {f.name for f in st.session_state.uploaded_files}
+            # Add new files that aren't already in the list
+            for file in new_files:
+                if file.name not in current_names:
+                    st.session_state.uploaded_files.append(file)
+        
+        # Display current files and allow removal
+        if st.session_state.uploaded_files:
+            st.markdown("**Uploaded Files:**")
+            files_to_remove = []
+            for i, file in enumerate(st.session_state.uploaded_files):
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.text(f"• {file.name}")
+                with col2:
+                    if st.button("🗑️", key=f"remove_{i}", help="Remove this file"):
+                        files_to_remove.append(i)
+            
+            # Remove files
+            if files_to_remove:
+                # Remove in reverse order to maintain indices
+                for i in sorted(files_to_remove, reverse=True):
+                    st.session_state.uploaded_files.pop(i)
+                st.rerun()
+        
+        uploaded_files = st.session_state.uploaded_files
         
         st.markdown("---")
         st.markdown("### 📊 About")
@@ -885,7 +941,7 @@ def main():
     if not monthly_data.empty:
         fig = create_monthly_expense_chart(monthly_data)
         if fig:
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
     else:
         st.info("No expense data available for the selected year.")
     
@@ -910,7 +966,7 @@ def main():
                 color_discrete_sequence=px.colors.qualitative.Set3
             )
             fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig_pie, width='stretch')
         
         with col2:
             st.subheader("Top Categories")
@@ -972,7 +1028,7 @@ def main():
         if display_columns:
             st.dataframe(
                 year_data[display_columns],
-                use_container_width=True,
+                width='stretch',
                 height=400
             )
         else:
