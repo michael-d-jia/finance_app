@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
+import io
 
 # Page Configuration
 st.set_page_config(
@@ -11,782 +12,401 @@ st.set_page_config(
 )
 
 # ============================================================================
+# TARGET SCHEMA - All files will be normalized to this structure
+# ============================================================================
+TARGET_SCHEMA = ['date', 'description', 'amount', 'category', 'source_file']
+
+# Column mapping: maps various bank column names to our target schema
+COLUMN_MAPPINGS = {
+    'date': [
+        'transaction date', 'transactiondate', 'trans date', 'date', 
+        'post date', 'postdate', 'posted date', 'posteddate'
+    ],
+    'description': [
+        'description', 'desc', 'details', 'merchant', 'vendor', 
+        'name', 'payee', 'memo', 'transaction description'
+    ],
+    'amount': [
+        'amount', 'amt', 'transaction amount', 'transactionamount'
+    ],
+    'category': [
+        'category', 'cat', 'type', 'transaction type', 'transactiontype'
+    ],
+    'debit': ['debit', 'debits', 'withdrawal', 'withdrawals'],
+    'credit': ['credit', 'credits', 'deposit', 'deposits']
+}
+
+# ============================================================================
 # CATEGORIZATION LOGIC
 # ============================================================================
-
-# Category definitions with keywords and descriptions
 CATEGORY_DEFINITIONS = {
     'Utilities': {
-        'keywords': [
-            'ELECTRIC', 'WATER', 'GAS', 'INTERNET', 'PHONE', 'CELLULAR', 'MOBILE',
+        'keywords': ['ELECTRIC', 'WATER', 'GAS', 'INTERNET', 'PHONE', 'CELLULAR', 'MOBILE',
             'SHELL', 'CHEVRON', 'EXXON', 'BP', 'ARCO', 'VALERO', 'GAS STATION',
             'POWER', 'UTILITY', 'PG&E', 'EDISON', 'CON EDISON', 'DUKE ENERGY',
             'AT&T', 'VERIZON', 'T-MOBILE', 'SPRINT', 'COMCAST', 'XFINITY',
-            'SPECTRUM', 'COX', 'OPTIMUM', 'CABLE', 'INTERNET SERVICE'
-        ],
-        'description': 'Monthly utilities and services: electricity, water, gas, internet, phone, cable, and gas station purchases'
+            'SPECTRUM', 'COX', 'OPTIMUM', 'CABLE', 'INTERNET SERVICE'],
+        'description': 'Monthly utilities: electricity, water, gas, internet, phone, cable'
     },
     'Entertainment': {
-        'keywords': [
-            'NETFLIX', 'SPOTIFY', 'DISNEY', 'HULU', 'AMAZON PRIME', 'APPLE TV',
+        'keywords': ['NETFLIX', 'SPOTIFY', 'DISNEY', 'HULU', 'AMAZON PRIME', 'APPLE TV',
             'YOUTUBE PREMIUM', 'PARAMOUNT', 'HBO', 'MAX', 'PEACOCK', 'SHOWTIME',
             'CINEMA', 'MOVIE', 'THEATER', 'AMC', 'REGAL', 'CINEMARK',
             'CONCERT', 'TICKETMASTER', 'STUBHUB', 'EVENTBRITE',
             'GAME', 'STEAM', 'PLAYSTATION', 'XBOX', 'NINTENDO',
-            'MUSIC', 'APPLE MUSIC', 'PANDORA', 'AUDIBLE', 'BOOKS'
-        ],
-        'description': 'Streaming services, movies, concerts, games, books, and entertainment subscriptions'
+            'MUSIC', 'APPLE MUSIC', 'PANDORA', 'AUDIBLE', 'BOOKS'],
+        'description': 'Streaming, movies, concerts, games, entertainment subscriptions'
     },
     'Travel': {
-        'keywords': [
-            'HOTEL', 'MOTEL', 'AIRBNB', 'VRBO', 'RESORT', 'LODGING',
+        'keywords': ['HOTEL', 'MOTEL', 'AIRBNB', 'VRBO', 'RESORT', 'LODGING',
             'AIRLINE', 'DELTA', 'UNITED', 'AMERICAN AIRLINES', 'SOUTHWEST',
             'JETBLUE', 'ALASKA AIR', 'FRONTIER', 'SPIRIT',
             'UBER', 'LYFT', 'TAXI', 'RIDESHARE', 'TRANSPORTATION',
             'BOOKING', 'EXPEDIA', 'TRIVAGO', 'KAYAK', 'PRICELINE',
             'RENTAL CAR', 'HERTZ', 'ENTERPRISE', 'AVIS', 'BUDGET',
-            'TRAVEL', 'VACATION', 'TRIP', 'FLIGHT', 'AIRPORT'
-        ],
-        'description': 'Hotels, flights, car rentals, rideshares, and all travel-related expenses'
+            'TRAVEL', 'VACATION', 'TRIP', 'FLIGHT', 'AIRPORT'],
+        'description': 'Hotels, flights, car rentals, rideshares, travel expenses'
     },
-    'Clothes, shoes': {
-        'keywords': [
-            'ZARA', 'NIKE', 'UNIQLO', 'MACY', "MACY'S", 'H&M', 'ADIDAS',
-            'OLD NAVY', 'GAP', 'TARGET', 'WALMART', 'COSTCO', 'AMAZON',
-            'NORDSTROM', 'BLOOMINGDALE', 'SAKS', 'NEIMAN MARCUS',
+    'Clothes & Shoes': {
+        'keywords': ['ZARA', 'NIKE', 'UNIQLO', 'MACY', "MACY'S", 'H&M', 'ADIDAS',
+            'OLD NAVY', 'GAP', 'NORDSTROM', 'BLOOMINGDALE', 'SAKS',
             'FOOT LOCKER', 'FINISH LINE', 'DSW', 'SHOE',
-            'CLOTHING', 'APPAREL', 'FASHION', 'OUTFIT', 'WARDROBE',
+            'CLOTHING', 'APPAREL', 'FASHION', 'OUTFIT',
             'BANANA REPUBLIC', 'J.CREW', 'ABERCROMBIE', 'HOLLISTER',
-            'LULULEMON', 'ATHLETA', 'UNDER ARMOUR', 'PUMA', 'REEBOK'
-        ],
-        'description': 'Clothing, shoes, accessories, and fashion purchases from retail stores'
-    },
-    'Property Tax': {
-        'keywords': [
-            'TAX', 'COUNTY', 'PROPERTY TAX', 'REAL ESTATE TAX',
-            'ASSESSOR', 'TREASURER', 'TAX ASSESSMENT',
-            'PROPERTY ASSESSMENT', 'TAX BILL', 'TAX PAYMENT'
-        ],
-        'description': 'Property taxes, county assessments, and real estate tax payments'
+            'LULULEMON', 'ATHLETA', 'UNDER ARMOUR', 'PUMA', 'REEBOK'],
+        'description': 'Clothing, shoes, accessories, fashion purchases'
     },
     'Groceries': {
-        'keywords': [
-            'WHOLE FOODS', 'TRADER JOE', "TRADER JOE'S", 'COSTCO', 'KROGER',
+        'keywords': ['WHOLE FOODS', 'TRADER JOE', "TRADER JOE'S", 'COSTCO', 'KROGER',
             'SAFEWAY', 'ALBERTSONS', 'VONS', 'RALPHS', 'FOOD LION',
             'PUBLIX', 'WEGMANS', 'H-E-B', 'WINN-DIXIE', 'GIANT',
             'STOP & SHOP', 'SHOPRITE', 'MEIJER', 'HY-VEE',
             'GROCERY', 'SUPERMARKET', 'MARKET', 'FOOD STORE',
-            'SPROUTS', 'FRESH MARKET', 'WHOLE FOODS MARKET'
-        ],
-        'description': 'Grocery shopping, food purchases, and household essentials from supermarkets'
+            'SPROUTS', 'FRESH MARKET', 'WHOLE FOODS MARKET', 'ALDI', 'LIDL'],
+        'description': 'Grocery shopping, food purchases, household essentials'
     },
     'Dining': {
-        'keywords': [
-            'RESTAURANT', 'CAFE', 'COFFEE', 'STARBUCKS', 'DUNKIN',
+        'keywords': ['RESTAURANT', 'CAFE', 'COFFEE', 'STARBUCKS', 'DUNKIN',
             'MCDONALD', 'BURGER KING', 'WENDY', 'TACO BELL',
             'CHIPOTLE', 'PANERA', 'SUBWAY', 'DOMINO', 'PIZZA',
             'DINING', 'EAT', 'FOOD', 'LUNCH', 'DINNER', 'BREAKFAST',
             'GRUBHUB', 'DOORDASH', 'UBER EATS', 'POSTMATES',
-            'CAFE', 'BAKERY', 'DELI', 'FAST FOOD'
-        ],
-        'description': 'Restaurant meals, coffee shops, fast food, and food delivery services'
+            'BAKERY', 'DELI', 'FAST FOOD'],
+        'description': 'Restaurant meals, coffee shops, fast food, food delivery'
     },
     'Healthcare': {
-        'keywords': [
-            'PHARMACY', 'CVS', 'WALGREENS', 'RITE AID', 'PHARMACY',
+        'keywords': ['PHARMACY', 'CVS', 'WALGREENS', 'RITE AID',
             'DOCTOR', 'HOSPITAL', 'MEDICAL', 'HEALTH', 'CLINIC',
             'DENTIST', 'DENTAL', 'VISION', 'OPTICAL', 'EYE',
             'INSURANCE', 'HEALTH INSURANCE', 'MEDICAL BILL',
-            'PRESCRIPTION', 'MEDICATION', 'DRUG STORE'
-        ],
-        'description': 'Medical expenses, prescriptions, doctor visits, dental, vision, and health insurance'
-    },
-    'Education': {
-        'keywords': [
-            'SCHOOL', 'UNIVERSITY', 'COLLEGE', 'TUITION', 'EDUCATION',
-            'TEXTBOOK', 'BOOKSTORE', 'STUDENT', 'COURSE', 'CLASS',
-            'TUTOR', 'LESSON', 'TRAINING', 'SEMINAR', 'WORKSHOP'
-        ],
-        'description': 'Tuition, school supplies, textbooks, courses, and educational expenses'
+            'PRESCRIPTION', 'MEDICATION', 'DRUG STORE'],
+        'description': 'Medical expenses, prescriptions, doctor visits, dental, vision'
     },
     'Home & Garden': {
-        'keywords': [
-            'HOME DEPOT', 'LOWE', "LOWE'S", 'HARDWARE', 'HOME IMPROVEMENT',
-            'IKEA', 'WAYFAIR', 'OVERSTOCK', 'BED BATH', 'BED BATH & BEYOND',
+        'keywords': ['HOME DEPOT', 'LOWE', "LOWE'S", 'HARDWARE', 'HOME IMPROVEMENT',
+            'IKEA', 'WAYFAIR', 'OVERSTOCK', 'BED BATH',
             'FURNITURE', 'DECOR', 'GARDEN', 'LANDSCAPING', 'LAWN',
-            'HARDWARE STORE', 'PAINT', 'TOOL', 'APPLIANCE'
-        ],
-        'description': 'Home improvement, furniture, appliances, gardening supplies, and household items'
-    },
-    'Insurance': {
-        'keywords': [
-            'INSURANCE', 'AUTO INSURANCE', 'CAR INSURANCE', 'HOME INSURANCE',
-            'RENTERS INSURANCE', 'LIFE INSURANCE', 'GEICO', 'STATE FARM',
-            'PROGRESSIVE', 'ALLSTATE', 'FARMERS', 'LIBERTY MUTUAL'
-        ],
-        'description': 'Auto, home, renters, life, and other insurance premiums'
-    },
-    'Transportation': {
-        'keywords': [
-            'METRO', 'SUBWAY', 'BUS', 'TRANSIT', 'PUBLIC TRANSPORT',
-            'PARKING', 'TOLL', 'EZPASS', 'FASSTRAK', 'TOLL ROAD',
-            'CAR WASH', 'AUTO REPAIR', 'MECHANIC', 'OIL CHANGE',
-            'TIRE', 'AUTO PARTS', 'NAPA', 'AUTOZONE', 'ORILEY'
-        ],
-        'description': 'Public transportation, parking, tolls, car maintenance, and auto services (excluding gas)'
+            'PAINT', 'TOOL', 'APPLIANCE'],
+        'description': 'Home improvement, furniture, appliances, gardening'
     },
     'Shopping': {
-        'keywords': [
-            'AMAZON', 'EBAY', 'ETSY', 'ONLINE', 'SHOPPING',
-            'DEPARTMENT STORE', 'RETAIL', 'STORE'
-        ],
-        'description': 'General shopping and retail purchases not categorized elsewhere'
+        'keywords': ['AMAZON', 'EBAY', 'ETSY', 'ONLINE', 'SHOPPING',
+            'TARGET', 'WALMART', 'DEPARTMENT STORE', 'RETAIL', 'STORE'],
+        'description': 'General shopping and retail purchases'
+    },
+    'Transportation': {
+        'keywords': ['METRO', 'SUBWAY', 'BUS', 'TRANSIT', 'PUBLIC TRANSPORT',
+            'PARKING', 'TOLL', 'EZPASS', 'FASTRAK',
+            'CAR WASH', 'AUTO REPAIR', 'MECHANIC', 'OIL CHANGE',
+            'TIRE', 'AUTO PARTS', 'NAPA', 'AUTOZONE'],
+        'description': 'Public transit, parking, tolls, car maintenance'
     }
 }
 
-def categorize_transaction(row):
-    """
-    Categorize transactions based on priority:
-    1. Keyword match in 'Description'
-    2. Use existing 'Category' column with mapping
-    3. Fallback to original category or 'Other'
-    """
-    description = str(row.get('Description', '')).upper()
-    original_category = str(row.get('Category', 'Other')).upper()
+def categorize_transaction(description: str, original_category: str = '') -> str:
+    """Categorize a transaction based on description keywords."""
+    desc_upper = str(description).upper()
     
-    # Priority 1: Keyword Match in Description
+    # Priority 1: Keyword match in description
     for category, info in CATEGORY_DEFINITIONS.items():
         for keyword in info['keywords']:
-            if keyword in description:
+            if keyword in desc_upper:
                 return category
     
-    # Priority 2: Map existing Category column
+    # Priority 2: Map original category if provided
     category_mapping = {
-        'BILLS & UTILITIES': 'Utilities',
-        'BILLS AND UTILITIES': 'Utilities',
-        'UTILITIES': 'Utilities',
-        'GROCERIES': 'Groceries',
-        'GROCERY': 'Groceries',
-        'GAS': 'Utilities',
-        'GAS & FUEL': 'Utilities',
-        'ENTERTAINMENT': 'Entertainment',
-        'TRAVEL': 'Travel',
-        'SHOPPING': 'Shopping',
-        'DINING': 'Dining',
-        'FOOD & DINING': 'Dining',
-        'HEALTHCARE': 'Healthcare',
-        'MEDICAL': 'Healthcare',
-        'EDUCATION': 'Education',
-        'HOME & GARDEN': 'Home & Garden',
-        'HOME IMPROVEMENT': 'Home & Garden',
-        'INSURANCE': 'Insurance',
-        'TRANSPORTATION': 'Transportation',
-        'AUTO & TRANSPORT': 'Transportation'
+        'BILLS & UTILITIES': 'Utilities', 'UTILITIES': 'Utilities',
+        'GROCERIES': 'Groceries', 'GROCERY': 'Groceries',
+        'GAS': 'Utilities', 'GAS & FUEL': 'Utilities',
+        'ENTERTAINMENT': 'Entertainment', 'TRAVEL': 'Travel',
+        'SHOPPING': 'Shopping', 'DINING': 'Dining',
+        'FOOD & DINING': 'Dining', 'HEALTHCARE': 'Healthcare',
+        'MEDICAL': 'Healthcare', 'HOME & GARDEN': 'Home & Garden',
+        'TRANSPORTATION': 'Transportation', 'AUTO & TRANSPORT': 'Transportation'
     }
     
-    if original_category in category_mapping:
-        return category_mapping[original_category]
+    orig_upper = str(original_category).upper().strip()
+    if orig_upper in category_mapping:
+        return category_mapping[orig_upper]
     
-    # Priority 3: Fallback to original category
-    return original_category.title() if original_category and original_category != 'OTHER' else 'Other'
+    # Priority 3: Return original if valid, else 'Other'
+    if original_category and original_category.strip() and original_category.lower() != 'nan':
+        return original_category.strip().title()
+    
+    return 'Other'
 
 
 # ============================================================================
-# DATA PROCESSING
+# CORE DATA LOADING - NORMALIZE EACH FILE INDEPENDENTLY
 # ============================================================================
 
-def normalize_column_names(df):
-    """
-    Normalize column names to handle variations in CSV headers.
-    Maps common variations to standard column names.
-    """
-    # Create a mapping of possible variations to standard names
-    column_mapping = {}
-    
-    # Normalize all column names to uppercase and remove spaces/underscores
-    normalized_columns = {col.upper().replace(' ', '').replace('_', ''): col for col in df.columns}
-    
-    # Standard column name mappings
-    standard_columns = {
-        'TRANSACTIONDATE': 'Transaction Date',
-        'DATE': 'Transaction Date',
-        'TRANSACTION_DATE': 'Transaction Date',
-        'TRANS DATE': 'Transaction Date',
-        'POSTDATE': 'Post Date',
-        'POST_DATE': 'Post Date',
-        'POSTEDDATE': 'Post Date',
-        'POSTED DATE': 'Post Date',
-        'DESCRIPTION': 'Description',
-        'DESC': 'Description',
-        'DETAILS': 'Description',
-        'MERCHANT': 'Description',
-        'VENDOR': 'Description',
-        'CATEGORY': 'Category',
-        'CAT': 'Category',
-        'TYPE': 'Type',
-        'TRANSACTIONTYPE': 'Type',
-        'TRANSACTION_TYPE': 'Type',
-        'AMOUNT': 'Amount',
-        'AMT': 'Amount',
-        'TRANSACTIONAMOUNT': 'Amount',
-        'TRANSACTION_AMOUNT': 'Amount',
-        'DEBIT': 'Debit',
-        'CREDIT': 'Credit',
-        'DEBITS': 'Debits',
-        'CREDITS': 'Credits',
-        'MEMO': 'Memo',
-        'NOTES': 'Memo',
-        'REFERENCE': 'Memo',
-        'REFERENCE NO.': 'Reference No.'
-    }
-    
-    # Find matches and create mapping
-    for std_key, std_value in standard_columns.items():
-        # Try exact match first
-        if std_key in normalized_columns:
-            column_mapping[normalized_columns[std_key]] = std_value
-        else:
-            # Try partial matches
-            for norm_key, orig_col in normalized_columns.items():
-                if std_key in norm_key or norm_key in std_key:
-                    column_mapping[orig_col] = std_value
-                    break
-    
-    # Also check for case-insensitive partial matches
-    for orig_col in df.columns:
-        orig_upper = orig_col.upper().replace(' ', '').replace('_', '')
-        for std_key, std_value in standard_columns.items():
-            if std_key in orig_upper or orig_upper in std_key:
-                if orig_col not in column_mapping:
-                    column_mapping[orig_col] = std_value
-    
-    # Handle duplicate mappings - if multiple columns map to same name, add suffix
-    seen_names = {}
-    final_mapping = {}
-    for orig_col, new_name in column_mapping.items():
-        if new_name in seen_names:
-            # This name was already used, add a suffix
-            counter = seen_names[new_name]
-            seen_names[new_name] = counter + 1
-            final_mapping[orig_col] = f"{new_name}_{counter}"
-        else:
-            seen_names[new_name] = 1
-            final_mapping[orig_col] = new_name
-    
-    # Rename columns
-    df_renamed = df.rename(columns=final_mapping)
-    
-    # Ensure all column names are unique (handle any remaining duplicates)
-    # If there are still duplicates, add numeric suffixes
-    if df_renamed.columns.duplicated().any():
-        new_cols = []
-        seen = {}
-        for col in df_renamed.columns:
-            if col in seen:
-                seen[col] += 1
-                new_cols.append(f"{col}_{seen[col]}")
-            else:
-                seen[col] = 0
-                new_cols.append(col)
-        df_renamed.columns = new_cols
-    
-    return df_renamed
+def find_column(df_columns: list, target_names: list) -> str | None:
+    """Find a column matching any of the target names (case-insensitive)."""
+    df_cols_lower = {col.lower().strip(): col for col in df_columns}
+    for target in target_names:
+        if target.lower() in df_cols_lower:
+            return df_cols_lower[target.lower()]
+    return None
 
 
-def load_and_process_data(uploaded_files):
-    """
-    Load CSV files, process and categorize transactions.
-    Handles inconsistent column headers by normalizing them.
-    Returns processed DataFrame or None if error.
-    """
+def clean_amount(value) -> float:
+    """Convert amount string to float, handling currency symbols and parentheses."""
+    if pd.isna(value):
+        return 0.0
+    val_str = str(value).strip()
+    # Remove currency symbols and commas
+    val_str = val_str.replace('$', '').replace(',', '').strip()
+    # Handle parentheses as negative (accounting format)
+    if val_str.startswith('(') and val_str.endswith(')'):
+        val_str = '-' + val_str[1:-1]
     try:
-        # Load all uploaded files
-        dfs = []
-        file_info = []
-        
-        for idx, file in enumerate(uploaded_files):
+        return float(val_str)
+    except ValueError:
+        return 0.0
+
+
+def normalize_single_file(df: pd.DataFrame, filename: str) -> pd.DataFrame:
+    """
+    Normalize a single dataframe to the target schema.
+    This is the CRITICAL function that ensures all files have identical columns.
+    """
+    normalized = pd.DataFrame()
+    
+    # --- 1. Find and normalize DATE column ---
+    date_col = find_column(df.columns, COLUMN_MAPPINGS['date'])
+    if date_col:
+        # Try multiple date formats
+        date_formats = ['%m/%d/%Y', '%Y-%m-%d', '%m-%d-%Y', '%d/%m/%Y', 
+                       '%m/%d/%y', '%Y/%m/%d', '%m/%d/%Y %H:%M:%S']
+        parsed = None
+        for fmt in date_formats:
             try:
-                # Store file content for potential re-reading
-                import io
-                file_bytes = file.read()
-                file_io = io.BytesIO(file_bytes)
-                
-                # Try different encodings
+                parsed = pd.to_datetime(df[date_col], format=fmt, errors='coerce')
+                if parsed.notna().sum() > len(df) * 0.5:  # >50% success
+                    break
+            except:
+                continue
+        if parsed is None or parsed.isna().all():
+            parsed = pd.to_datetime(df[date_col], errors='coerce')
+        normalized['date'] = parsed
+    else:
+        # Try to infer date column from data patterns
+        for col in df.columns:
+            sample = df[col].dropna().head(10).astype(str)
+            if sample.str.contains(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}').mean() > 0.5:
+                normalized['date'] = pd.to_datetime(df[col], errors='coerce')
+                break
+        if 'date' not in normalized.columns:
+            normalized['date'] = pd.NaT  # Fill with NaT if no date found
+    
+    # --- 2. Find and normalize DESCRIPTION column ---
+    desc_col = find_column(df.columns, COLUMN_MAPPINGS['description'])
+    if desc_col:
+        normalized['description'] = df[desc_col].fillna('').astype(str)
+    else:
+        normalized['description'] = 'Unknown'
+    
+    # --- 3. Find and normalize AMOUNT column ---
+    amount_col = find_column(df.columns, COLUMN_MAPPINGS['amount'])
+    debit_col = find_column(df.columns, COLUMN_MAPPINGS['debit'])
+    credit_col = find_column(df.columns, COLUMN_MAPPINGS['credit'])
+    
+    if amount_col:
+        normalized['amount'] = df[amount_col].apply(clean_amount)
+    elif debit_col and credit_col:
+        # Debit/Credit format (Capital One, some banks)
+        debits = df[debit_col].apply(clean_amount)
+        credits = df[credit_col].apply(clean_amount)
+        normalized['amount'] = credits - debits  # Credits positive, debits negative
+    elif debit_col:
+        normalized['amount'] = -df[debit_col].apply(clean_amount)  # Debits as negative
+    elif credit_col:
+        normalized['amount'] = df[credit_col].apply(clean_amount)
+    else:
+        # Try to find any numeric column that looks like amounts
+        for col in df.columns:
+            if col.lower() in ['date', 'description', 'category', 'type', 'memo']:
+                continue
+            sample = df[col].dropna().head(20)
+            try:
+                cleaned = sample.apply(clean_amount)
+                if cleaned.abs().mean() > 0.01 and cleaned.abs().mean() < 1000000:
+                    normalized['amount'] = df[col].apply(clean_amount)
+                    break
+            except:
+                continue
+        if 'amount' not in normalized.columns:
+            normalized['amount'] = 0.0
+    
+    # --- 4. Find and normalize CATEGORY column ---
+    cat_col = find_column(df.columns, COLUMN_MAPPINGS['category'])
+    if cat_col:
+        normalized['category'] = df[cat_col].fillna('Other').astype(str)
+    else:
+        normalized['category'] = 'Other'
+    
+    # --- 5. Add source file tracking ---
+    normalized['source_file'] = filename
+    
+    # --- 6. Apply smart categorization ---
+    normalized['processed_category'] = normalized.apply(
+        lambda row: categorize_transaction(row['description'], row['category']), axis=1
+    )
+    
+    return normalized
+
+
+@st.cache_data(show_spinner=False)
+def load_and_process_data(file_contents: list[tuple[str, bytes]]) -> pd.DataFrame | None:
+    """
+    Load and process multiple CSV files.
+    
+    CRITICAL: Each file is normalized INDEPENDENTLY before merging.
+    This prevents schema conflicts from causing data loss.
+    """
+    normalized_dfs = []
+    load_errors = []
+    
+    for filename, content in file_contents:
+        try:
+            file_io = io.BytesIO(content)
+            
+            # Try different encodings
+            df = None
+            for encoding in ['utf-8', 'latin-1', 'cp1252']:
                 try:
                     file_io.seek(0)
-                    df = pd.read_csv(file_io, encoding='utf-8')
-                except UnicodeDecodeError:
-                    try:
-                        file_io.seek(0)
-                        df = pd.read_csv(file_io, encoding='latin-1')
-                    except:
-                        file_io.seek(0)
-                        df = pd.read_csv(file_io, encoding='cp1252')
-                
-                # Check if column names look like data (dates, numbers) rather than headers
-                # This handles files with unlabeled headers or headerless files
-                column_names = list(df.columns)
-                looks_like_unlabeled = False
-                
-                # Check if column names are dates or numbers (unlabeled headers)
-                for col in column_names[:3]:  # Check first 3 columns
-                    col_str = str(col)
-                    # Check if column name looks like a date (MM/DD/YYYY or similar)
-                    if '/' in col_str and any(char.isdigit() for char in col_str):
-                        looks_like_unlabeled = True
-                        break
-                    # Check if column name is numeric or starts with special chars
-                    if col_str.replace('-', '').replace('.', '').replace('/', '').isdigit() or col_str.startswith('-'):
-                        looks_like_unlabeled = True
-                        break
-                
-                # Check if first row looks like headers or data
-                first_row_values = df.iloc[0].astype(str).tolist() if len(df) > 0 else []
-                looks_like_data = any(
-                    any(char.isdigit() for char in str(val)) and len(str(val)) > 5 
-                    for val in first_row_values[:3]
-                )
-                
-                # If column names look unlabeled OR first row looks like data, handle as headerless
-                if looks_like_unlabeled or (looks_like_data and len(df.columns) <= 3):
-                    # Re-read file without header
-                    try:
-                        file_io.seek(0)
-                        df = pd.read_csv(file_io, encoding='utf-8', header=None)
-                        
-                        # Assign standard column names based on number of columns
-                        if len(df.columns) >= 3:
-                            df.columns = ['Transaction Date', 'Description', 'Amount'][:len(df.columns)]
-                        elif len(df.columns) == 2:
-                            df.columns = ['Transaction Date', 'Amount']
-                        else:
-                            df.columns = [f'Column_{i+1}' for i in range(len(df.columns))]
-                    except Exception as e:
-                        # If that fails, keep original df but rename columns if they look unlabeled
-                        if looks_like_unlabeled:
-                            if len(df.columns) >= 3:
-                                df.columns = ['Transaction Date', 'Description', 'Amount'][:len(df.columns)]
-                            elif len(df.columns) == 2:
-                                df.columns = ['Transaction Date', 'Amount']
-                
-                # Store original column names before normalization
-                original_cols_before = list(df.columns)
-                
-                # Find and preserve original category column BEFORE normalization
-                original_cat_col = None
-                for col in original_cols_before:
-                    col_lower = col.lower()
-                    if 'category' in col_lower or col_lower == 'cat':
-                        original_cat_col = col
-                        break
-                
-                # Store original category values if found
-                original_cat_values = None
-                if original_cat_col:
-                    original_cat_values = df[original_cat_col].copy()
-                
-                # Normalize column names
-                df = normalize_column_names(df)
-                
-                # Add original category column after normalization
-                if original_cat_values is not None:
-                    df['Original_Category'] = original_cat_values.fillna('Other').astype(str)
-                
-                # Store original column names for info
-                file_info.append({
-                    'file_name': file.name,
-                    'original_columns': original_cols_before,
-                    'row_count': len(df)
-                })
-                
-                dfs.append(df)
-                
-            except Exception as e:
-                st.warning(f"⚠️ Error loading {file.name}: {str(e)}")
-                continue
-        
-        if not dfs:
-            st.error("❌ No files could be loaded successfully.")
-            return None
-        
-        # Ensure all DataFrames have unique column names before concatenating
-        # Check and fix duplicate columns in each DataFrame
-        for i, df in enumerate(dfs):
-            if df.columns.duplicated().any():
-                # Fix duplicate column names by adding suffixes
-                new_cols = []
-                seen = {}
-                for col in df.columns:
-                    if col in seen:
-                        seen[col] += 1
-                        new_cols.append(f"{col}_{seen[col]}")
-                    else:
-                        seen[col] = 0
-                        new_cols.append(col)
-                dfs[i].columns = new_cols
-        
-        # Align columns across all DataFrames for concatenation
-        all_columns = set()
-        for df in dfs:
-            all_columns.update(df.columns)
-        
-        # Reindex each DataFrame to have all columns (fill missing with NaN)
-        dfs_aligned = []
-        for df in dfs:
-            # Ensure DataFrame has unique column names
-            if df.columns.duplicated().any():
-                # This shouldn't happen after the fix above, but just in case
-                df = df.loc[:, ~df.columns.duplicated()]
-            df_aligned = df.reindex(columns=list(all_columns))
-            dfs_aligned.append(df_aligned)
-        
-        # Concatenate all dataframes
-        try:
-            data = pd.concat(dfs_aligned, ignore_index=True, sort=False)
-        except Exception as e:
-            # If concatenation still fails, provide detailed error
-            st.error(f"❌ Error concatenating CSV files: {str(e)}")
-            st.info("This might be due to incompatible column structures across files.")
-            with st.expander("📋 File Column Details"):
-                for i, df in enumerate(dfs):
-                    st.write(f"**File {i+1} columns:** {list(df.columns)}")
-                    st.write(f"**Duplicate columns:** {df.columns[df.columns.duplicated()].tolist()}")
-            return None
-        
-        # Standardize column names for processing
-        # Find the transaction date column - be more flexible
-        date_col = None
-        
-        # First, try to find date column with various patterns
-        for col in data.columns:
-            col_lower = col.lower()
-            # Look for transaction date first
-            if 'transaction date' in col_lower:
-                date_col = col
-                break
-            # Then look for any date column (but not post date)
-            elif 'date' in col_lower and 'post' not in col_lower and date_col is None:
-                date_col = col
-        
-        # If still not found, try any column with 'date' in it
-        if not date_col:
-            for col in data.columns:
-                if 'date' in col.lower():
-                    date_col = col
+                    df = pd.read_csv(file_io, encoding=encoding)
                     break
-        
-        # If still not found, check if any column contains date-like values
-        if not date_col:
-            for col in data.columns:
-                # Sample first few values to see if they look like dates
-                try:
-                    sample = data[col].dropna().head(5)
-                    if len(sample) > 0:
-                        # Check if values look like dates (contain / or - and numbers)
-                        date_like_count = 0
-                        for val in sample:
-                            val_str = str(val)
-                            if ('/' in val_str or '-' in val_str) and any(c.isdigit() for c in val_str):
-                                date_like_count += 1
-                        if date_like_count / len(sample) > 0.6:
-                            date_col = col
-                            st.info(f"ℹ️ Inferred '{col}' as the date column based on data patterns.")
-                            break
-                except:
-                    continue
-        
-        if date_col:
-            # Try common date formats first for better performance and to avoid warnings
-            date_formats = ['%m/%d/%Y', '%Y-%m-%d', '%m-%d-%Y', '%d/%m/%Y', '%Y/%m/%d', '%m/%d/%y', '%d-%m-%Y', '%m/%d/%Y %H:%M:%S', '%Y-%m-%d %H:%M:%S']
-            parsed_date = None
-            
-            for fmt in date_formats:
-                try:
-                    parsed = pd.to_datetime(data[date_col], format=fmt, errors='coerce')
-                    if parsed.notna().sum() > len(data) * 0.8:  # If >80% parse successfully
-                        parsed_date = parsed
-                        break
-                except:
+                except UnicodeDecodeError:
                     continue
             
-            # If no format worked well, use default parsing with warning suppression
-            if parsed_date is None or (parsed_date.isna().all() if parsed_date is not None else True):
-                import warnings
-                with warnings.catch_warnings():
-                    warnings.filterwarnings('ignore', category=UserWarning, message='.*infer format.*')
-                    parsed_date = pd.to_datetime(data[date_col], errors='coerce')
+            if df is None or df.empty:
+                load_errors.append(f"⚠️ {filename}: Could not read file or file is empty")
+                continue
             
-            data['Transaction Date'] = parsed_date
-        else:
-            st.error("❌ Could not find a date column in the CSV files.")
-            st.info(f"**Available columns:** {', '.join(data.columns.tolist())}")
-            st.info("""
-            **Troubleshooting:**
-            - Date columns should contain dates in formats like: MM/DD/YYYY, YYYY-MM-DD, etc.
-            - Column names can be: Date, Transaction Date, TransactionDate, etc.
-            - The app will try to infer date columns from data patterns
-            """)
+            # Check if file has no headers (data in first row)
+            first_row = df.iloc[0] if len(df) > 0 else None
+            col_names = list(df.columns)
             
-            # Show file info
-            with st.expander("📋 File Details"):
-                for info in file_info:
-                    st.write(f"**{info['file_name']}**: {info['row_count']} rows")
-                    st.write(f"Columns: {', '.join(info['original_columns'])}")
+            # Heuristic: if column names look like dates or amounts, it's headerless
+            looks_headerless = False
+            for col in col_names[:3]:
+                col_str = str(col)
+                if '/' in col_str or col_str.replace('.', '').replace('-', '').isdigit():
+                    looks_headerless = True
+                    break
             
-            return None
-        
-        # Find amount column - handle Debit/Credit or Credits/Debits columns
-        # Also try to infer amount column from data patterns if not explicitly labeled
-        amount_col = None
-        debit_col = None
-        credit_col = None
-        
-        for col in data.columns:
-            col_lower = col.lower()
-            if col_lower == 'amount':
-                amount_col = col
-            elif col_lower == 'debit':
-                debit_col = col
-            elif col_lower == 'credit':
-                credit_col = col
-            elif col_lower == 'debits':
-                debit_col = col
-            elif col_lower == 'credits':
-                credit_col = col
-        
-        # If no explicit amount column found, try to infer from data
-        if not amount_col and not debit_col and not credit_col:
-            # Look for columns that contain numeric values that could be amounts
-            for col in data.columns:
-                col_lower = col.lower()
-                # Skip date, description, category, type, and memo columns
-                skip_keywords = ['date', 'description', 'desc', 'category', 'cat', 'type', 'memo', 'reference', 'ref', 'account', 'card']
-                if any(keyword in col_lower for keyword in skip_keywords):
-                    continue
+            if looks_headerless:
+                file_io.seek(0)
+                df = pd.read_csv(file_io, header=None, encoding=encoding)
+                # Assign generic column names
+                num_cols = len(df.columns)
+                if num_cols >= 3:
+                    df.columns = ['Transaction Date', 'Description', 'Amount'] + \
+                                [f'Col_{i}' for i in range(3, num_cols)]
+                elif num_cols == 2:
+                    df.columns = ['Transaction Date', 'Amount']
+                else:
+                    df.columns = [f'Col_{i}' for i in range(num_cols)]
+            
+            # NORMALIZE THIS FILE to target schema
+            normalized_df = normalize_single_file(df, filename)
+            
+            # Drop rows with invalid dates or zero amounts
+            valid_rows = normalized_df['date'].notna() & (normalized_df['amount'] != 0)
+            normalized_df = normalized_df[valid_rows]
+            
+            if len(normalized_df) > 0:
+                normalized_dfs.append(normalized_df)
+                st.success(f"✅ {filename}: Loaded {len(normalized_df)} transactions")
+            else:
+                load_errors.append(f"⚠️ {filename}: No valid transactions found")
                 
-                # Try to convert column to numeric
-                try:
-                    sample_values = data[col].dropna().head(20)  # Check more samples
-                    if len(sample_values) > 0:
-                        # Check if values look like amounts (numeric, possibly with $ or commas)
-                        numeric_count = 0
-                        total_numeric_value = 0
-                        for val in sample_values:
-                            val_str = str(val).replace('$', '').replace(',', '').replace('(', '').replace(')', '').strip()
-                            try:
-                                num_val = float(val_str)
-                                numeric_count += 1
-                                total_numeric_value += abs(num_val)
-                            except:
-                                pass
-                        
-                        # If most values are numeric AND they look like transaction amounts (not too small, not too large)
-                        if numeric_count / len(sample_values) > 0.7:
-                            avg_value = total_numeric_value / numeric_count if numeric_count > 0 else 0
-                            # Amounts should typically be reasonable transaction sizes (between $0.01 and $1,000,000)
-                            if 0.01 <= avg_value <= 1000000:
-                                amount_col = col
-                                st.info(f"ℹ️ Inferred '{col}' as the amount column based on data patterns.")
-                                break
-                except Exception as e:
-                    continue
-        
-        # Create Amount column from available columns
-        if amount_col:
-            # Convert amount to numeric, handling currency symbols and commas
-            data['Amount'] = pd.to_numeric(
-                data[amount_col].astype(str).str.replace('$', '').str.replace(',', '').str.replace('(', '-').str.replace(')', ''),
-                errors='coerce'
-            )
-        elif debit_col and credit_col:
-            # Handle Debit/Credit columns (Capital One style)
-            debit_values = pd.to_numeric(
-                data[debit_col].astype(str).str.replace('$', '').str.replace(',', '').str.replace('(', '-').str.replace(')', ''),
-                errors='coerce'
-            ).fillna(0)
-            credit_values = pd.to_numeric(
-                data[credit_col].astype(str).str.replace('$', '').str.replace(',', '').str.replace('(', '-').str.replace(')', ''),
-                errors='coerce'
-            ).fillna(0)
-            # Debits are negative, Credits are positive
-            data['Amount'] = credit_values - debit_values
-        elif debit_col:
-            # Only debit column (expenses)
-            data['Amount'] = -pd.to_numeric(
-                data[debit_col].astype(str).str.replace('$', '').str.replace(',', '').str.replace('(', '-').str.replace(')', ''),
-                errors='coerce'
-            )
-        elif credit_col:
-            # Only credit column (income)
-            data['Amount'] = pd.to_numeric(
-                data[credit_col].astype(str).str.replace('$', '').str.replace(',', '').str.replace('(', '-').str.replace(')', ''),
-                errors='coerce'
-            )
-        else:
-            st.error("❌ Could not find an amount column in the CSV files.")
-            st.info(f"**Available columns:** {', '.join(data.columns.tolist())}")
-            st.info("""
-            **Troubleshooting:**
-            - If your CSV has Debit/Credit columns, make sure they're labeled as 'Debit' and 'Credit'
-            - If your CSV has unlabeled columns, the app will try to infer which column contains amounts
-            - Amount columns should contain numeric values (with or without $ signs)
-            - Common amount column names: Amount, Amt, Debit, Credit, Debits, Credits, Transaction Amount
-            """)
-            
-            # Show file info with sample data
-            with st.expander("📋 File Details & Sample Data"):
-                for info in file_info:
-                    st.write(f"**{info['file_name']}**: {info['row_count']} rows")
-                    st.write(f"Columns: {', '.join(info['original_columns'])}")
-                    # Show sample of first few rows
-                    try:
-                        file_io = io.BytesIO()
-                        # We can't easily show sample data here, but we can list columns
-                    except:
-                        pass
-            
-            return None
-        
-        # Now verify we have both required columns after processing
-        if 'Transaction Date' not in data.columns or 'Amount' not in data.columns:
-            missing = []
-            if 'Transaction Date' not in data.columns:
-                missing.append('Transaction Date')
-            if 'Amount' not in data.columns:
-                missing.append('Amount')
-            st.error(f"❌ Could not process required columns: {', '.join(missing)}")
-            st.info(f"**Available columns after processing:** {', '.join(data.columns.tolist())}")
-            return None
-        
-        # Handle description and category columns (optional)
-        desc_col = None
-        for col in data.columns:
-            if 'description' in col.lower() or 'desc' in col.lower() or 'details' in col.lower():
-                desc_col = col
-                break
-        
-        if desc_col:
-            data['Description'] = data[desc_col].fillna('')
-        else:
-            data['Description'] = ''
-        
-        # Find and preserve original Category column
-        cat_col = None
-        for col in data.columns:
-            col_lower = col.lower()
-            if col_lower == 'category' or col_lower == 'cat':
-                cat_col = col
-                break
-        
-        if cat_col:
-            # Use normalized category column
-            data['Category'] = data[cat_col].fillna('Other').astype(str)
-            # If Original_Category doesn't exist, use Category
-            if 'Original_Category' not in data.columns:
-                data['Original_Category'] = data['Category']
-        else:
-            data['Category'] = 'Other'
-            if 'Original_Category' not in data.columns:
-                data['Original_Category'] = 'Other'
-        
-        # Drop rows with invalid dates or amounts
-        initial_count = len(data)
-        data = data.dropna(subset=['Transaction Date', 'Amount'])
-        dropped_count = initial_count - len(data)
-        
-        if dropped_count > 0:
-            st.info(f"ℹ️ Dropped {dropped_count} rows with invalid dates or amounts.")
-        
-        if len(data) == 0:
-            st.error("❌ No valid data remaining after processing.")
-            return None
-        
-        # Extract Year and Month
-        data['Year'] = data['Transaction Date'].dt.year
-        data['Month'] = data['Transaction Date'].dt.month
-        data['Month_Name'] = data['Transaction Date'].dt.strftime('%B')
-        
-        # Apply categorization
-        data['Processed_Category'] = data.apply(categorize_transaction, axis=1)
-        
-        # Separate Income and Expenses
-        data['Is_Income'] = data['Amount'] > 0
-        data['Abs_Amount'] = data['Amount'].abs()
-        
-        # Show success message with file info
-        st.success(f"✅ Successfully loaded {len(data)} transactions from {len(dfs)} file(s)")
-        
-        return data
+        except Exception as e:
+            load_errors.append(f"❌ {filename}: {str(e)}")
     
-    except Exception as e:
-        st.error(f"❌ Error processing data: {str(e)}")
-        import traceback
-        with st.expander("🔍 Error Details"):
-            st.code(traceback.format_exc())
+    # Show any errors
+    for error in load_errors:
+        st.warning(error)
+    
+    if not normalized_dfs:
+        st.error("❌ No valid data could be loaded from any file.")
         return None
-
-
-def calculate_metrics(data, selected_year):
-    """Calculate yearly income and expenses"""
-    year_data = data[data['Year'] == selected_year]
     
-    total_income = year_data[year_data['Is_Income']]['Amount'].sum()
-    total_expenses = abs(year_data[~year_data['Is_Income']]['Amount'].sum())
+    # MERGE - All dataframes now have identical columns
+    combined = pd.concat(normalized_dfs, ignore_index=True)
     
-    return total_income, total_expenses
-
-
-def prepare_monthly_expense_data(data, selected_year):
-    """Prepare data for monthly expense chart"""
-    # Filter for selected year and expenses only
-    expense_data = data[(data['Year'] == selected_year) & (~data['Is_Income'])].copy()
+    # Add derived columns for analysis
+    combined['year'] = combined['date'].dt.year
+    combined['month'] = combined['date'].dt.month
+    combined['month_name'] = combined['date'].dt.strftime('%B')
+    combined['is_income'] = combined['amount'] > 0
+    combined['abs_amount'] = combined['amount'].abs()
     
-    # Group by Month and Category
-    monthly_expenses = expense_data.groupby(['Month', 'Month_Name', 'Processed_Category'])['Abs_Amount'].sum().reset_index()
-    
-    # Sort by month number
-    monthly_expenses = monthly_expenses.sort_values('Month')
-    
-    return monthly_expenses
+    return combined
 
 
 # ============================================================================
 # VISUALIZATION
 # ============================================================================
 
-def create_monthly_expense_chart(monthly_data):
-    """Create stacked bar chart for monthly expenses by category"""
-    if monthly_data.empty:
+def create_monthly_expense_chart(data: pd.DataFrame, year: int):
+    """Create stacked bar chart for monthly expenses by category."""
+    expense_data = data[(data['year'] == year) & (~data['is_income'])].copy()
+    
+    if expense_data.empty:
         st.warning("No expense data available for the selected year.")
         return None
     
+    monthly = expense_data.groupby(['month', 'month_name', 'processed_category'])['abs_amount'].sum().reset_index()
+    monthly = monthly.sort_values('month')
+    
     fig = px.bar(
-        monthly_data,
-        x='Month_Name',
-        y='Abs_Amount',
-        color='Processed_Category',
+        monthly, x='month_name', y='abs_amount', color='processed_category',
         title='Monthly Expenses by Category',
-        labels={
-            'Month_Name': 'Month',
-            'Abs_Amount': 'Amount ($)',
-            'Processed_Category': 'Category'
-        },
-        height=500,
+        labels={'month_name': 'Month', 'abs_amount': 'Amount ($)', 'processed_category': 'Category'},
+        height=500, color_discrete_sequence=px.colors.qualitative.Set3
+    )
+    fig.update_layout(barmode='stack', hovermode='x unified')
+    fig.update_yaxes(tickprefix='$', tickformat=',.0f')
+    return fig
+
+
+def create_category_pie_chart(data: pd.DataFrame, year: int):
+    """Create pie chart for expense distribution."""
+    expense_data = data[(data['year'] == year) & (~data['is_income'])]
+    category_totals = expense_data.groupby('processed_category')['abs_amount'].sum().sort_values(ascending=False)
+    
+    if category_totals.empty:
+        return None
+    
+    fig = px.pie(
+        values=category_totals.values, names=category_totals.index,
+        title='Expense Distribution by Category', hole=0.4,
         color_discrete_sequence=px.colors.qualitative.Set3
     )
-    
-    # Update layout for better readability
-    fig.update_layout(
-        xaxis_title='Month',
-        yaxis_title='Amount ($)',
-        legend_title='Category',
-        hovermode='x unified',
-        barmode='stack'
-    )
-    
-    # Format y-axis as currency
-    fig.update_yaxes(tickprefix='$', tickformat=',.0f')
-    
+    fig.update_traces(textposition='inside', textinfo='percent+label')
     return fig
 
 
@@ -795,7 +415,6 @@ def create_monthly_expense_chart(monthly_data):
 # ============================================================================
 
 def main():
-    # Title
     st.title("💰 Jia's Family Yearly Finance Summary")
     st.markdown("---")
     
@@ -803,47 +422,10 @@ def main():
     with st.sidebar:
         st.header("📁 Upload Bank Statements")
         
-        # Use session state to persist uploaded files across re-runs
-        if 'uploaded_files' not in st.session_state:
-            st.session_state.uploaded_files = []
-        
-        # File uploader
-        new_files = st.file_uploader(
-            "Upload CSV files",
-            type=['csv'],
-            accept_multiple_files=True,
+        uploaded_files = st.file_uploader(
+            "Upload CSV files", type=['csv'], accept_multiple_files=True,
             help="Upload one or more bank statement CSV files"
         )
-        
-        # Update session state with new files
-        if new_files:
-            # Get list of current file names
-            current_names = {f.name for f in st.session_state.uploaded_files}
-            # Add new files that aren't already in the list
-            for file in new_files:
-                if file.name not in current_names:
-                    st.session_state.uploaded_files.append(file)
-        
-        # Display current files and allow removal
-        if st.session_state.uploaded_files:
-            st.markdown("**Uploaded Files:**")
-            files_to_remove = []
-            for i, file in enumerate(st.session_state.uploaded_files):
-                col1, col2 = st.columns([4, 1])
-                with col1:
-                    st.text(f"• {file.name}")
-                with col2:
-                    if st.button("🗑️", key=f"remove_{i}", help="Remove this file"):
-                        files_to_remove.append(i)
-            
-            # Remove files
-            if files_to_remove:
-                # Remove in reverse order to maintain indices
-                for i in sorted(files_to_remove, reverse=True):
-                    st.session_state.uploaded_files.pop(i)
-                st.rerun()
-        
-        uploaded_files = st.session_state.uploaded_files
         
         st.markdown("---")
         st.markdown("### 📊 About")
@@ -852,189 +434,114 @@ def main():
         - Total income and expenses
         - Monthly spending breakdown
         - Categorized transactions
-        - Flexible CSV column handling
+        - **Handles multiple CSV formats automatically**
         """)
     
-    # Main Content
     if not uploaded_files:
         st.info("👆 Please upload one or more CSV files to get started.")
-        
-        # Show example of expected format
-        with st.expander("ℹ️ CSV Format Requirements"):
+        with st.expander("ℹ️ Supported CSV Formats"):
             st.markdown("""
-            **Required Columns** (case-insensitive, variations accepted):
-            - **Transaction Date** (or Date, TransactionDate, Transaction_Date)
-            - **Amount** (or Amt, TransactionAmount, Transaction_Amount)
+            **The app automatically handles various bank formats:**
+            - Chase, Wells Fargo, Bank of America, Capital One, Amex, etc.
+            - Files with different column names (Date vs Transaction Date, etc.)
+            - Debit/Credit columns or single Amount columns
+            - Files with or without headers
             
-            **Optional Columns**:
-            - **Description** (or Desc, Details, Merchant, Vendor)
-            - **Category** (or Cat)
-            - **Type** (or TransactionType)
-            - **Post Date** (or PostDate, PostedDate)
-            - **Memo** (or Notes, Reference)
-            
-            **Note**: The app automatically handles variations in column names, 
-            so your CSV files don't need to match exactly. Amount can include 
-            currency symbols and commas.
+            **Columns are automatically mapped to:**
+            - `date` - Transaction date
+            - `description` - Transaction description  
+            - `amount` - Transaction amount
+            - `category` - Category (optional, will be auto-categorized)
             """)
         return
     
+    # Read file contents for caching
+    file_contents = []
+    for f in uploaded_files:
+        content = f.read()
+        file_contents.append((f.name, content))
+        f.seek(0)  # Reset for potential re-read
+    
     # Load and process data
-    with st.spinner("Processing data..."):
-        data = load_and_process_data(uploaded_files)
+    with st.spinner("Processing files..."):
+        data = load_and_process_data(file_contents)
     
     if data is None:
         return
     
-    # Year Filter in Sidebar
+    st.success(f"📊 **Total: {len(data)} transactions loaded from {len(uploaded_files)} file(s)**")
+    
+    # Year filter
     with st.sidebar:
         st.markdown("---")
         st.header("🗓️ Filter by Year")
-        available_years = sorted(data['Year'].unique())
-        
-        if len(available_years) == 0:
-            st.error("No valid years found in data")
+        years = sorted(data['year'].dropna().unique().astype(int))
+        if not years:
+            st.error("No valid years found")
             return
-        
-        selected_year = st.selectbox(
-            "Select Year",
-            options=available_years,
-            index=len(available_years) - 1  # Default to most recent year
-        )
+        selected_year = st.selectbox("Select Year", years, index=len(years)-1)
     
     # Calculate metrics
-    total_income, total_expenses = calculate_metrics(data, selected_year)
+    year_data = data[data['year'] == selected_year]
+    total_income = year_data[year_data['is_income']]['amount'].sum()
+    total_expenses = year_data[~year_data['is_income']]['abs_amount'].sum()
+    net_savings = total_income - total_expenses
     
-    # Display Metrics
+    # Display metrics
     st.header(f"📈 {selected_year} Summary")
     col1, col2, col3 = st.columns(3)
+    col1.metric("💵 Total Income", f"${total_income:,.2f}")
+    col2.metric("💸 Total Expenses", f"${total_expenses:,.2f}")
+    col3.metric("💰 Net Savings", f"${net_savings:,.2f}", 
+                delta_color="normal" if net_savings >= 0 else "inverse")
+    
+    st.markdown("---")
+    
+    # Monthly expense chart
+    st.header("📊 Monthly Expense Breakdown")
+    fig = create_monthly_expense_chart(data, selected_year)
+    if fig:
+        st.plotly_chart(fig, use_container_width=True)
+    
+    st.markdown("---")
+    
+    # Category breakdown
+    st.header("🔍 Category Breakdown")
+    col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.metric(
-            label="💵 Total Income",
-            value=f"${total_income:,.2f}",
-            delta=None
-        )
+        pie_fig = create_category_pie_chart(data, selected_year)
+        if pie_fig:
+            st.plotly_chart(pie_fig, use_container_width=True)
     
     with col2:
-        st.metric(
-            label="💸 Total Expenses",
-            value=f"${total_expenses:,.2f}",
-            delta=None
-        )
-    
-    with col3:
-        net_savings = total_income - total_expenses
-        st.metric(
-            label="💰 Net Savings",
-            value=f"${net_savings:,.2f}",
-            delta=None,
-            delta_color="normal" if net_savings >= 0 else "inverse"
-        )
-    
-    st.markdown("---")
-    
-    # Monthly Expense Chart
-    st.header("📊 Monthly Expense Breakdown")
-    monthly_data = prepare_monthly_expense_data(data, selected_year)
-    
-    if not monthly_data.empty:
-        fig = create_monthly_expense_chart(monthly_data)
-        if fig:
-            st.plotly_chart(fig, width='stretch')
-    else:
-        st.info("No expense data available for the selected year.")
-    
-    # Additional insights
-    st.markdown("---")
-    st.header("🔍 Category Breakdown")
-    
-    # Category summary
-    year_expenses = data[(data['Year'] == selected_year) & (~data['Is_Income'])]
-    category_summary = year_expenses.groupby('Processed_Category')['Abs_Amount'].sum().sort_values(ascending=False)
-    
-    if not category_summary.empty:
-        col1, col2 = st.columns([2, 1])
+        st.subheader("Top Categories")
+        expense_data = data[(data['year'] == selected_year) & (~data['is_income'])]
+        category_totals = expense_data.groupby('processed_category')['abs_amount'].sum().sort_values(ascending=False)
+        total = category_totals.sum()
         
-        with col1:
-            # Pie chart
-            fig_pie = px.pie(
-                values=category_summary.values,
-                names=category_summary.index,
-                title='Expense Distribution by Category',
-                hole=0.4,
-                color_discrete_sequence=px.colors.qualitative.Set3
-            )
-            fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-            st.plotly_chart(fig_pie, width='stretch')
-        
-        with col2:
-            st.subheader("Top Categories")
-            # Use container with proper spacing
-            for idx, (category, amount) in enumerate(category_summary.head(10).items(), 1):
-                percentage = (amount / category_summary.sum()) * 100
-                # Use metric or markdown with better spacing
-                st.markdown(f"**{idx}. {category}**")
-                st.markdown(f"<span style='margin-left: 20px;'>${amount:,.2f} ({percentage:.1f}%)</span>", unsafe_allow_html=True)
-                st.markdown("")  # Add spacing between items
+        for i, (cat, amt) in enumerate(category_totals.head(10).items(), 1):
+            pct = (amt / total * 100) if total > 0 else 0
+            st.markdown(f"**{i}. {cat}**")
+            st.caption(f"${amt:,.2f} ({pct:.1f}%)")
     
-    # Category Definitions
+    # Source file breakdown
     st.markdown("---")
-    st.header("📚 Category Definitions")
-    st.markdown("Understanding what's included in each expense category:")
+    with st.expander("📂 Transactions by Source File"):
+        source_summary = data[data['year'] == selected_year].groupby('source_file').agg(
+            transactions=('amount', 'count'),
+            total_amount=('amount', 'sum')
+        ).reset_index()
+        st.dataframe(source_summary, use_container_width=True)
     
-    # Show categories that appear in the data
-    categories_in_data = set(category_summary.index) if not category_summary.empty else set()
-    all_categories = set(CATEGORY_DEFINITIONS.keys())
-    
-    # Create columns for better layout with proper spacing
-    cols = st.columns(2)
-    col_idx = 0
-    
-    for category in sorted(all_categories):
-        if category in CATEGORY_DEFINITIONS:
-            info = CATEGORY_DEFINITIONS[category]
-            with cols[col_idx % 2]:
-                # Highlight if category appears in data
-                if category in categories_in_data:
-                    st.markdown(f"**{category}** ✅")
-                else:
-                    st.markdown(f"**{category}**")
-                # Use caption for better text wrapping
-                st.caption(info['description'])
-                st.markdown("<br>", unsafe_allow_html=True)
-            col_idx += 1
-    
-    # Show original categories from CSV files if different
-    if 'Original_Category' in data.columns:
-        original_cats = data[data['Year'] == selected_year]['Original_Category'].unique()
-        processed_cats = set(category_summary.index) if not category_summary.empty else set()
-        original_only = [cat for cat in original_cats if cat not in processed_cats and str(cat) != 'Other' and str(cat) != 'nan']
-        
-        if original_only:
-            st.markdown("---")
-            st.subheader("📋 Original Categories from CSV Files")
-            st.info(f"These categories from your CSV files were mapped to processed categories: {', '.join(sorted(set(original_cats))[:10])}")
-    
-    # Raw data view (optional)
+    # Raw data view
     with st.expander("🔎 View Raw Transaction Data"):
-        year_data = data[data['Year'] == selected_year].sort_values('Transaction Date', ascending=False)
-        # Select available columns for display
-        display_columns = []
-        for col in ['Transaction Date', 'Description', 'Processed_Category', 'Amount', 'Type', 'Category']:
-            if col in year_data.columns:
-                display_columns.append(col)
-        
-        if display_columns:
-            st.dataframe(
-                year_data[display_columns],
-                width='stretch',
-                height=400
-            )
-        else:
-            st.info("No displayable columns found.")
+        display_cols = ['date', 'description', 'processed_category', 'amount', 'source_file']
+        st.dataframe(
+            year_data[display_cols].sort_values('date', ascending=False),
+            use_container_width=True, height=400
+        )
 
 
 if __name__ == "__main__":
     main()
-
